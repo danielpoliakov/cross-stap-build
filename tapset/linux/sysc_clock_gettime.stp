@@ -1,0 +1,120 @@
+# clock_gettime ______________________________________________
+# long sys_clock_gettime(clockid_t which_clock, struct timespec __user *tp)
+#
+
+@define _SYSCALL_CLOCK_GETTIME_NAME
+%(
+	name = "clock_gettime"
+%)
+
+@define _SYSCALL_CLOCK_GETTIME_ARGSTR
+%(
+	argstr = sprintf("%s, %p", clk_id_str, tp_uaddr)
+%)
+
+@define _SYSCALL_CLOCK_GETTIME_REGARGS
+%(
+	clk_id = int_arg(1)
+	clk_id_str = _get_wc_str(clk_id)
+	tp_uaddr = pointer_arg(2)
+%)
+
+probe syscall.clock_gettime = dw_syscall.clock_gettime !, nd_syscall.clock_gettime ? {}
+probe syscall.clock_gettime.return = dw_syscall.clock_gettime.return !, nd_syscall.clock_gettime.return ? {}
+
+# dw_clock_gettime _____________________________________________________
+
+probe dw_syscall.clock_gettime = __syscall.clock_gettime,
+	kernel.function("compat_sys_clock_gettime").call ?
+{
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	clk_id = __int32($which_clock)
+	clk_id_str = _get_wc_str(__int32($which_clock))
+	tp_uaddr = $tp
+	@_SYSCALL_CLOCK_GETTIME_ARGSTR
+}
+probe __syscall.clock_gettime = kernel.function("sys_clock_gettime").call
+{
+	@__syscall_gate(@const("__NR_clock_gettime"))
+}
+probe dw_syscall.clock_gettime.return = __syscall.clock_gettime.return,
+	kernel.function("compat_sys_clock_gettime").return ?
+{
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.clock_gettime.return =
+	kernel.function("sys_clock_gettime").return
+{
+	@__syscall_gate(@const("__NR_clock_gettime"))
+}
+
+# nd_clock_gettime _____________________________________________________
+
+probe nd_syscall.clock_gettime = nd1_syscall.clock_gettime!, nd2_syscall.clock_gettime!, tp_syscall.clock_gettime
+  { }
+
+probe nd1_syscall.clock_gettime = __nd1_syscall.clock_gettime,
+	kprobe.function("compat_sys_clock_gettime") ?
+{
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	asmlinkage()
+	@_SYSCALL_CLOCK_GETTIME_REGARGS
+	@_SYSCALL_CLOCK_GETTIME_ARGSTR
+}
+probe __nd1_syscall.clock_gettime = kprobe.function("sys_clock_gettime").call
+{
+	@__syscall_gate(@const("__NR_clock_gettime"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.clock_gettime = kprobe.function(@arch_syscall_prefix "sys_clock_gettime") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_clock_gettime") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@_SYSCALL_CLOCK_GETTIME_REGARGS
+	@_SYSCALL_CLOCK_GETTIME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_gettime = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_gettime"), @const("__NR_compat_clock_gettime"))
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@_SYSCALL_CLOCK_GETTIME_REGARGS
+	@_SYSCALL_CLOCK_GETTIME_ARGSTR
+}
+
+probe nd_syscall.clock_gettime.return = nd1_syscall.clock_gettime.return!, nd2_syscall.clock_gettime.return!, tp_syscall.clock_gettime.return
+  { }
+
+probe nd1_syscall.clock_gettime.return = __nd1_syscall.clock_gettime.return,
+	kprobe.function("compat_sys_clock_gettime").return ?
+{
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.clock_gettime.return =
+	kprobe.function("sys_clock_gettime").return
+{
+	@__syscall_gate(@const("__NR_clock_gettime"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.clock_gettime.return = kprobe.function(@arch_syscall_prefix "sys_clock_gettime").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_clock_gettime").return ?
+{
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_gettime.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_gettime"), @const("__NR_compat_clock_gettime"))
+	@_SYSCALL_CLOCK_GETTIME_NAME
+	@SYSC_RETVALSTR($ret)
+}

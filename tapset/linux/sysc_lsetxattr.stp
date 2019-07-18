@@ -1,0 +1,114 @@
+# lsetxattr __________________________________________________
+# long sys_lsetxattr(char __user *path,
+#               char __user *name,
+#               void __user *value,
+#               size_t size,
+#               int flags)
+#
+
+@define _SYSCALL_LSETXATTR_NAME
+%(
+	name = "lsetxattr"
+%)
+
+@define _SYSCALL_LSETXATTR_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s, %u, %s", path, name_str, value_str,
+	                 size, flags_str)
+%)
+
+@define _SYSCALL_LSETXATTR_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+	name_uaddr = pointer_arg(2)
+	name_str = user_string_quoted(name_uaddr)
+	value_uaddr = pointer_arg(3)
+	size = ulong_arg(4)
+	value_str = _stp_xattr_val_str(value_uaddr, size)
+	flags = int_arg(5)
+	flags_str = _stp_xattr_flags_str(flags)
+%)
+
+probe syscall.lsetxattr = dw_syscall.lsetxattr !, nd_syscall.lsetxattr ? {}
+probe syscall.lsetxattr.return = dw_syscall.lsetxattr.return !,
+                                 nd_syscall.lsetxattr.return ? {}
+
+# dw_lsetxattr _____________________________________________________
+
+probe dw_syscall.lsetxattr = kernel.function("sys_lsetxattr").call
+{
+	@_SYSCALL_LSETXATTR_NAME
+	path_uaddr = @choose_defined($pathname, $path)
+	path = user_string_quoted(@choose_defined($pathname, $path))
+	name_uaddr = $name
+	name_str = user_string_quoted($name)
+	value_uaddr = $value
+	size = __ulong($size)
+	value_str = _stp_xattr_val_str($value, size)
+	flags = __int32($flags)
+	flags_str = _stp_xattr_flags_str(__int32($flags))
+	@_SYSCALL_LSETXATTR_ARGSTR
+}
+probe dw_syscall.lsetxattr.return = kernel.function("sys_lsetxattr").return
+{
+	@_SYSCALL_LSETXATTR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_lsetxattr _____________________________________________________
+
+probe nd_syscall.lsetxattr = nd1_syscall.lsetxattr!, nd2_syscall.lsetxattr!, tp_syscall.lsetxattr
+  { }
+
+probe nd1_syscall.lsetxattr = kprobe.function("sys_lsetxattr") ?
+{
+	@_SYSCALL_LSETXATTR_NAME
+	asmlinkage()
+	@_SYSCALL_LSETXATTR_REGARGS
+	@_SYSCALL_LSETXATTR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lsetxattr = kprobe.function(@arch_syscall_prefix "sys_lsetxattr") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LSETXATTR_NAME
+	@_SYSCALL_LSETXATTR_REGARGS
+	@_SYSCALL_LSETXATTR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lsetxattr = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_lsetxattr"), @const("__NR_compat_lsetxattr"))
+	@_SYSCALL_LSETXATTR_NAME
+	@_SYSCALL_LSETXATTR_REGARGS
+	@_SYSCALL_LSETXATTR_ARGSTR
+}
+
+probe nd_syscall.lsetxattr.return = nd1_syscall.lsetxattr.return!, nd2_syscall.lsetxattr.return!, tp_syscall.lsetxattr.return
+  { }
+  
+probe nd1_syscall.lsetxattr.return = kprobe.function("sys_lsetxattr").return ?
+{
+	@_SYSCALL_LSETXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lsetxattr.return = kprobe.function(@arch_syscall_prefix "sys_lsetxattr").return ?
+{
+	@_SYSCALL_LSETXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lsetxattr.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_lsetxattr"), @const("__NR_compat_lsetxattr"))
+	@_SYSCALL_LSETXATTR_NAME
+	@SYSC_RETVALSTR($ret)
+}

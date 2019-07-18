@@ -1,0 +1,152 @@
+# lseek ______________________________________________________
+# off_t sys_lseek(unsigned int fd, off_t offset, unsigned int whence)
+# COMPAT_SYSCALL_DEFINE3(lseek, unsigned int, fd, compat_off_t, offset,
+#			 unsigned int, whence)
+# long sys32_lseek(unsigned int fd, int offset, unsigned int whence)
+#
+
+@define _SYSCALL_LSEEK_NAME
+%(
+	name = "lseek"
+%)
+
+@define _SYSCALL_LSEEK_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %s", fildes, offset, whence_str)
+%)
+
+@define _SYSCALL_LSEEK_REGARGS
+%(
+	fildes = int_arg(1)
+	offset = @__compat_task ? int_arg(2) : long_arg(2)
+	whence = uint_arg(3)
+	whence_str = _seek_whence_str(whence)
+%)
+
+@define _SYSCALL_GATE
+%(
+    %( arch == "s390" %?
+	// On s390x, older kernels used sys32_lseek_wrapper() as the
+	// lseek compat function. Since sys32_lseek_wrapper() was
+	// written in assembly language, we can't probe it. So, on
+	// those kernels, we'll probe sys_lseek().
+	%( kernel_v >= "3.10" %?
+		@__syscall_gate_compat_simple
+	%)
+    %:
+	@__syscall_gate_compat_simple
+    %)
+%)
+
+probe syscall.lseek = dw_syscall.lseek !, nd_syscall.lseek ? {}
+probe syscall.lseek.return = dw_syscall.lseek.return !, nd_syscall.lseek.return ? {}
+
+# dw_lseek _____________________________________________________
+
+probe dw_syscall.lseek = __syscall.lseek ?,
+%( arch == "powerpc" %?
+			 kernel.function("ppc32_lseek").call ?,
+%)
+			 kernel.function("compat_sys_lseek").call ?,
+			 kernel.function("sys32_lseek").call ?
+{
+	@_SYSCALL_LSEEK_NAME
+	fildes = __int32($fd)
+	offset = @__compat_long($offset)
+	whence = @__compat_ulong(@choose_defined($whence, $origin))
+	whence_str = _seek_whence_str(whence)
+	@_SYSCALL_LSEEK_ARGSTR
+}
+probe __syscall.lseek = kernel.function("sys_lseek").call ?
+{
+	@_SYSCALL_GATE
+}
+probe dw_syscall.lseek.return = __syscall.lseek.return ?,
+%( arch == "powerpc" %?
+				kernel.function("ppc32_lseek").return ?,
+%)
+				kernel.function("compat_sys_lseek").return ?,
+				kernel.function("sys32_lseek").return ?
+{
+	@_SYSCALL_LSEEK_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.lseek.return = kernel.function("sys_lseek").return ?
+{
+	@_SYSCALL_GATE
+}
+
+# nd_lseek _____________________________________________________
+
+probe nd_syscall.lseek = nd1_syscall.lseek!, nd2_syscall.lseek!, tp_syscall.lseek
+  { }
+
+probe nd1_syscall.lseek = __nd1_syscall.lseek ?,
+%( arch == "powerpc" %?
+			 kprobe.function("ppc32_lseek") ?,
+%)
+                         kprobe.function("compat_sys_lseek") ?,
+			 kprobe.function("sys32_lseek") ?
+{
+	@_SYSCALL_LSEEK_NAME
+	asmlinkage()
+	@_SYSCALL_LSEEK_REGARGS
+	@_SYSCALL_LSEEK_ARGSTR
+}
+probe __nd1_syscall.lseek = kprobe.function("sys_lseek") ?
+{
+	@_SYSCALL_GATE
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lseek = kprobe.function(@arch_syscall_prefix "sys_lseek") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LSEEK_NAME
+	@_SYSCALL_LSEEK_REGARGS
+	@_SYSCALL_LSEEK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lseek = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_lseek"), @const("__NR_compat_lseek"))
+	@_SYSCALL_LSEEK_NAME
+	@_SYSCALL_LSEEK_REGARGS
+	@_SYSCALL_LSEEK_ARGSTR
+}
+
+probe nd_syscall.lseek.return = nd1_syscall.lseek.return!, nd2_syscall.lseek.return!, tp_syscall.lseek.return
+  { }
+  
+probe nd1_syscall.lseek.return = __nd1_syscall.lseek.return ?,
+%( arch == "powerpc" %?
+				kprobe.function("ppc32_lseek").return ?,
+%)
+				kprobe.function("compat_sys_lseek").return ?,
+				kprobe.function("sys32_lseek").return ?
+{
+	@_SYSCALL_LSEEK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.lseek.return = kprobe.function("sys_lseek").return ?
+{
+	@_SYSCALL_GATE
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lseek.return = kprobe.function(@arch_syscall_prefix "sys_lseek").return ?
+{
+	@_SYSCALL_LSEEK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lseek.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_lseek"), @const("__NR_compat_lseek"))
+	@_SYSCALL_LSEEK_NAME
+	@SYSC_RETVALSTR($ret)
+}

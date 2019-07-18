@@ -1,0 +1,101 @@
+# kcmp _______________________________________________________
+# SYSCALL_DEFINE5(kcmp, pid_t, pid1, pid_t, pid2, int, type,
+#                 unsigned long, idx1, unsigned long, idx2)
+
+@define _SYSCALL_KCMP_NAME
+%(
+	name = "kcmp"
+%)
+
+@define _SYSCALL_KCMP_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %s, %u, %u", pid1, pid2, type_str, idx1, idx2)
+%)
+
+@define _SYSCALL_KCMP_REGARGS
+%(
+	pid1 = int_arg(1)
+	pid2 = int_arg(2)
+	type = int_arg(3)
+	type_str = _kcmp_type_str(type)
+	idx1 = ulong_arg(4)
+	idx2 = ulong_arg(5)
+%)
+
+probe syscall.kcmp = dw_syscall.kcmp !, nd_syscall.kcmp ? {}
+probe syscall.kcmp.return = dw_syscall.kcmp.return !, nd_syscall.kcmp.return ? {}
+
+# dw_kcmp _____________________________________________________
+
+probe dw_syscall.kcmp = kernel.function("sys_kcmp") ?
+{
+	@_SYSCALL_KCMP_NAME
+	pid1 = __int32($pid1)
+	pid2 = __int32($pid2)
+	type = __int32($type)
+	type_str = _kcmp_type_str(type)
+	idx1 = @__compat_ulong($idx1)
+	idx2 = @__compat_ulong($idx2)
+	@_SYSCALL_KCMP_ARGSTR
+}
+probe dw_syscall.kcmp.return = kernel.function("sys_kcmp").return ?
+{
+	@_SYSCALL_KCMP_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_kcmp _____________________________________________________
+
+probe nd_syscall.kcmp = nd1_syscall.kcmp!, nd2_syscall.kcmp!, tp_syscall.kcmp
+  { }
+
+probe nd1_syscall.kcmp = kprobe.function("sys_kcmp") ?
+{
+	@_SYSCALL_KCMP_NAME
+	@_SYSCALL_KCMP_REGARGS
+	@_SYSCALL_KCMP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.kcmp = kprobe.function(@arch_syscall_prefix "sys_kcmp") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_KCMP_NAME
+	@_SYSCALL_KCMP_REGARGS
+	@_SYSCALL_KCMP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.kcmp = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_kcmp"), @const("__NR_compat_kcmp"))
+	@_SYSCALL_KCMP_NAME
+	@_SYSCALL_KCMP_REGARGS
+	@_SYSCALL_KCMP_ARGSTR
+}
+
+probe nd_syscall.kcmp.return = nd1_syscall.kcmp.return!, nd2_syscall.kcmp.return!, tp_syscall.kcmp.return
+  { }
+  
+probe nd1_syscall.kcmp.return = kprobe.function("sys_kcmp").return ?
+{
+	@_SYSCALL_KCMP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.kcmp.return = kprobe.function(@arch_syscall_prefix "sys_kcmp").return ?
+{
+	@_SYSCALL_KCMP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.kcmp.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_kcmp"), @const("__NR_compat_kcmp"))
+	@_SYSCALL_KCMP_NAME
+	@SYSC_RETVALSTR($ret)
+}

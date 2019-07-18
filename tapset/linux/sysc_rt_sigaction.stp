@@ -1,0 +1,217 @@
+# rt_sigaction _______________________________________________
+#
+# sys_rt_sigaction(int sig,
+#			const struct sigaction __user *act,
+#			struct sigaction __user *oact,
+#			size_t sigsetsize)
+#
+
+@define _SYSCALL_RT_SIGACTION_NAME
+%(
+	name = "rt_sigaction"
+%)
+
+@define _SYSCALL_RT_SIGACTION_ARGSTR
+%(
+	argstr = sprintf("%s, {%s}, %p, %d", sig_str, act_str, oact_uaddr, sigsetsize) 
+%)
+
+@define _SYSCALL_RT_SIGACTION_REGARGS
+%(
+	sig = int_arg(1)
+	sig_str = _signal_name(sig)
+	act_uaddr = pointer_arg(2)
+	act_str = _struct_sigaction_u(act_uaddr)
+	oact_uaddr = pointer_arg(3)
+	sigsetsize = ulong_arg(4)
+%)
+
+@define _SYSCALL_RT_SIGACTION32_REGARGS
+%(
+	sig = int_arg(1)
+	sig_str = _signal_name(sig)
+	act_uaddr = pointer_arg(2)
+	act_str = _struct_sigaction32_u(act_uaddr)
+	oact_uaddr = pointer_arg(3)
+	sigsetsize = uint_arg(4)
+%)
+
+probe syscall.rt_sigaction = dw_syscall.rt_sigaction !, nd_syscall.rt_sigaction ? {}
+probe syscall.rt_sigaction.return = dw_syscall.rt_sigaction.return !,
+                                    nd_syscall.rt_sigaction.return ? {}
+
+# dw_rt_sigaction _____________________________________________________
+
+probe dw_syscall.rt_sigaction = kernel.function("sys_rt_sigaction").call ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	act_uaddr = $act
+	act_str = _struct_sigaction_u(act_uaddr)
+	oact_uaddr = $oact
+	sigsetsize = $sigsetsize
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+probe dw_syscall.rt_sigaction.return = kernel.function("sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_rt_sigaction _____________________________________________________
+
+probe nd_syscall.rt_sigaction = nd1_syscall.rt_sigaction!, nd2_syscall.rt_sigaction!, tp_syscall.rt_sigaction
+  { }
+
+probe nd1_syscall.rt_sigaction = kprobe.function("sys_rt_sigaction") ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	asmlinkage()
+	@_SYSCALL_RT_SIGACTION_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigaction = kprobe.function(@arch_syscall_prefix "sys_rt_sigaction") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@_SYSCALL_RT_SIGACTION_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigaction = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_rt_sigaction"))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@_SYSCALL_RT_SIGACTION_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+probe nd_syscall.rt_sigaction.return = nd1_syscall.rt_sigaction.return!, nd2_syscall.rt_sigaction.return!, tp_syscall.rt_sigaction.return
+  { }
+  
+probe nd1_syscall.rt_sigaction.return =
+	kprobe.function("sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigaction.return = kprobe.function(@arch_syscall_prefix "sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigaction.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_rt_sigaction"))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# long sys32_rt_sigaction(int sig,
+#		struct sigaction32 __user *act,
+#		struct sigaction32 __user *oact,
+#		unsigned int sigsetsize)
+# ppc only
+# compat_sys_rt_sigaction(int sig,
+#			const struct sigaction32 __user *act,
+#			struct sigaction32 __user *oact,
+#			size_t sigsetsize)
+
+probe syscall.rt_sigaction32 = dw_syscall.rt_sigaction32 !,
+                               nd_syscall.rt_sigaction32 ? {}
+probe syscall.rt_sigaction32.return = dw_syscall.rt_sigaction32.return !,
+                                      nd_syscall.rt_sigaction32.return ? {}
+
+# dw_rt_sigaction32 _____________________________________________________
+
+probe dw_syscall.rt_sigaction32 = kernel.function("sys32_rt_sigaction").call ?,
+                               kernel.function("compat_sys_rt_sigaction").call ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	act_uaddr = @__pointer($act)
+	act_str = _struct_sigaction32_u(act_uaddr)
+	oact_uaddr = $oact
+	sigsetsize = $sigsetsize
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+probe dw_syscall.rt_sigaction32.return =
+	kernel.function("sys32_rt_sigaction").return ?,
+	kernel.function("compat_sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_rt_sigaction32 _____________________________________________________
+
+probe nd_syscall.rt_sigaction32 = nd1_syscall.rt_sigaction32!, nd2_syscall.rt_sigaction32!, tp_syscall.rt_sigaction32
+  { }
+
+probe nd1_syscall.rt_sigaction32 = kprobe.function("sys32_rt_sigaction") ?,
+                                   kprobe.function("compat_sys_rt_sigaction") ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	asmlinkage()
+	@_SYSCALL_RT_SIGACTION32_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigaction32 =
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_sigaction") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@_SYSCALL_RT_SIGACTION32_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigaction32 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_rt_sigaction"))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@_SYSCALL_RT_SIGACTION32_REGARGS
+	@_SYSCALL_RT_SIGACTION_ARGSTR
+}
+
+probe nd_syscall.rt_sigaction32.return = nd1_syscall.rt_sigaction32.return!, nd2_syscall.rt_sigaction32.return!, tp_syscall.rt_sigaction32.return
+  { }
+  
+probe nd1_syscall.rt_sigaction32.return =
+	kprobe.function("sys32_rt_sigaction").return ?,
+	kprobe.function("compat_sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigaction32.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_sigaction").return ?
+{
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigaction32.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_rt_sigaction"))
+	@_SYSCALL_RT_SIGACTION_NAME
+	@SYSC_RETVALSTR($ret)
+}

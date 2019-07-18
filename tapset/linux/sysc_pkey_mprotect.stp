@@ -1,0 +1,99 @@
+# pkey_mprotect _______________________________________________________
+# long sys_pkey_mprotect(unsigned long start, size_t len, unsigned long prot, int pkey)
+
+@define _SYSCALL_PKEY_MPROTECT_NAME
+%(
+	name = "pkey_mprotect"
+%)
+
+@define _SYSCALL_PKEY_MPROTECT_ARGSTR
+%(
+	argstr = sprintf("%p, %u, %s, %d", addr, len, prot_str, pkey)
+%)
+
+@define _SYSCALL_PKEY_MPROTECT_REGARGS
+%(
+	addr = ulong_arg(1)
+	len = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	pkey = int_arg(4)
+%)
+
+probe syscall.pkey_mprotect = dw_syscall.pkey_mprotect !, nd_syscall.pkey_mprotect ? {}
+probe syscall.pkey_mprotect.return = dw_syscall.pkey_mprotect.return !, nd_syscall.pkey_mprotect.return ? {}
+
+# dw_pkey_mprotect _____________________________________________________
+
+probe dw_syscall.pkey_mprotect = kernel.function("sys_pkey_mprotect").call
+{
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	addr = __ulong($start)
+	len = __ulong($len)
+	prot = __ulong($prot)
+	prot_str = _mprotect_prot_str(prot)
+	pkey = __int32($pkey)
+	@_SYSCALL_PKEY_MPROTECT_ARGSTR
+}
+probe dw_syscall.pkey_mprotect.return = kernel.function("sys_pkey_mprotect").return
+{
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pkey_mprotect _____________________________________________________
+
+probe nd_syscall.pkey_mprotect = nd1_syscall.pkey_mprotect!, nd2_syscall.pkey_mprotect!, tp_syscall.pkey_mprotect
+  { }
+
+probe nd1_syscall.pkey_mprotect = kprobe.function("sys_pkey_mprotect") ?
+{
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	asmlinkage()
+	@_SYSCALL_PKEY_MPROTECT_REGARGS
+	@_SYSCALL_PKEY_MPROTECT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pkey_mprotect = kprobe.function(@arch_syscall_prefix "sys_pkey_mprotect") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@_SYSCALL_PKEY_MPROTECT_REGARGS
+	@_SYSCALL_PKEY_MPROTECT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pkey_mprotect = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pkey_mprotect"), @const("__NR_compat_pkey_mprotect"))
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@_SYSCALL_PKEY_MPROTECT_REGARGS
+	@_SYSCALL_PKEY_MPROTECT_ARGSTR
+}
+
+probe nd_syscall.pkey_mprotect.return = nd1_syscall.pkey_mprotect.return!, nd2_syscall.pkey_mprotect.return!, tp_syscall.pkey_mprotect.return
+  { }
+  
+probe nd1_syscall.pkey_mprotect.return = kprobe.function("sys_pkey_mprotect").return ?
+{
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pkey_mprotect.return = kprobe.function(@arch_syscall_prefix "sys_pkey_mprotect").return ?
+{
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pkey_mprotect.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pkey_mprotect"), @const("__NR_compat_pkey_mprotect"))
+	@_SYSCALL_PKEY_MPROTECT_NAME
+	@SYSC_RETVALSTR($ret)
+}

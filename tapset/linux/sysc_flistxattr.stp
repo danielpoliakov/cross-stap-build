@@ -1,0 +1,95 @@
+# flistxattr _________________________________________________
+# ssize_t sys_flistxattr(int fd, char __user *list, size_t size)
+
+@define _SYSCALL_FLISTXATTR_NAME
+%(
+	name = "flistxattr"
+%)
+
+@define _SYSCALL_FLISTXATTR_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %u", filedes, list_uaddr, size)
+%)
+
+@define _SYSCALL_FLISTXATTR_REGARGS
+%(
+	filedes = int_arg(1)
+	list_uaddr = pointer_arg(2)
+	size = ulong_arg(3)
+%)
+
+probe syscall.flistxattr = dw_syscall.flistxattr !, nd_syscall.flistxattr ? {}
+probe syscall.flistxattr.return = dw_syscall.flistxattr.return !, nd_syscall.flistxattr.return ? {}
+
+# dw_flistxattr _____________________________________________________
+
+probe dw_syscall.flistxattr = kernel.function("sys_flistxattr").call
+{
+	@_SYSCALL_FLISTXATTR_NAME
+	filedes = __int32($fd)
+	list_uaddr = $list
+	size = __ulong($size)
+	@_SYSCALL_FLISTXATTR_ARGSTR
+}
+probe dw_syscall.flistxattr.return = kernel.function("sys_flistxattr").return
+{
+	@_SYSCALL_FLISTXATTR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_flistxattr _____________________________________________________
+
+probe nd_syscall.flistxattr = nd1_syscall.flistxattr!, nd2_syscall.flistxattr!, tp_syscall.flistxattr
+  { }
+
+probe nd1_syscall.flistxattr = kprobe.function("sys_flistxattr") ?
+{
+	@_SYSCALL_FLISTXATTR_NAME
+	asmlinkage()
+	@_SYSCALL_FLISTXATTR_REGARGS
+	@_SYSCALL_FLISTXATTR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.flistxattr = kprobe.function(@arch_syscall_prefix "sys_flistxattr") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FLISTXATTR_NAME
+	@_SYSCALL_FLISTXATTR_REGARGS
+	@_SYSCALL_FLISTXATTR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.flistxattr = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_flistxattr"), @const("__NR_compat_flistxattr"))
+	@_SYSCALL_FLISTXATTR_NAME
+	@_SYSCALL_FLISTXATTR_REGARGS
+	@_SYSCALL_FLISTXATTR_ARGSTR
+}
+
+probe nd_syscall.flistxattr.return = nd1_syscall.flistxattr.return!, nd2_syscall.flistxattr.return!, tp_syscall.flistxattr.return
+  { }
+  
+probe nd1_syscall.flistxattr.return = kprobe.function("sys_flistxattr").return ?
+{
+	@_SYSCALL_FLISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.flistxattr.return = kprobe.function(@arch_syscall_prefix "sys_flistxattr").return ?
+{
+	@_SYSCALL_FLISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.flistxattr.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_flistxattr"), @const("__NR_compat_flistxattr"))
+	@_SYSCALL_FLISTXATTR_NAME
+	@SYSC_RETVALSTR($ret)
+}

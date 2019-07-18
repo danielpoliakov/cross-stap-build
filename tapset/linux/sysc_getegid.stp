@@ -1,0 +1,120 @@
+# getegid ____________________________________________________
+# long sys_getegid(void)
+# long sys_getegid16(void)
+# long sys32_getegid16(void)
+#
+
+@define _SYSCALL_GETEGID_NAME
+%(
+	name = "getegid"
+%)
+
+@define _SYSCALL_GETEGID_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.getegid = dw_syscall.getegid !, nd_syscall.getegid ? {}
+probe syscall.getegid.return = dw_syscall.getegid.return !,
+                               nd_syscall.getegid.return ? {}
+
+# dw_getegid _____________________________________________________
+
+probe dw_syscall.getegid = kernel.function("sys_getegid16").call ?,
+                        kernel.function("sys32_getegid16").call ?,
+%( arch == "s390" %?
+                        kernel.function("compat_sys_s390_getegid16").call ?,
+%)
+                        kernel.function("sys_getegid").call
+{
+	@_SYSCALL_GETEGID_NAME
+	@_SYSCALL_GETEGID_ARGSTR
+}
+probe dw_syscall.getegid.return = kernel.function("sys_getegid16").return ?,
+	kernel.function("sys32_getegid16").return ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_getegid16").return ?,
+%)
+	kernel.function("sys_getegid").return
+{
+	@_SYSCALL_GETEGID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getegid _____________________________________________________
+
+probe nd_syscall.getegid = nd1_syscall.getegid!, nd2_syscall.getegid!, tp_syscall.getegid
+  { }
+
+probe nd1_syscall.getegid = kprobe.function("sys_getegid16") ?,
+                            kprobe.function("sys32_getegid16") ?,
+%( arch == "s390" %?
+                            kprobe.function("compat_sys_s390_getegid16") ?,
+%)
+                            kprobe.function("sys_getegid")
+{
+	@_SYSCALL_GETEGID_NAME
+	@_SYSCALL_GETEGID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getegid = kprobe.function(@arch_syscall0_prefix "sys_getegid") ?,
+                            kprobe.function(@arch_syscall0_prefix "sys_getegid16") ?
+{
+	@_SYSCALL_GETEGID_NAME
+	@_SYSCALL_GETEGID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getegid = __tp_syscall.getegid, __tp_syscall.getegid16
+{
+	@_SYSCALL_GETEGID_NAME
+	@_SYSCALL_GETEGID_ARGSTR
+}
+probe __tp_syscall.getegid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getegid"), @const("__NR_compat_getegid32"))
+}
+probe __tp_syscall.getegid16 = kernel.trace("sys_enter")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getegid"))
+}
+
+probe nd_syscall.getegid.return = nd1_syscall.getegid.return!, nd2_syscall.getegid.return!, tp_syscall.getegid.return
+  { }
+
+probe nd1_syscall.getegid.return = kprobe.function("sys_getegid16").return ?,
+	kprobe.function("sys32_getegid16").return ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_getegid16").return ?,
+%)
+	kprobe.function("sys_getegid").return
+{
+	@_SYSCALL_GETEGID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getegid.return =
+	kprobe.function(@arch_syscall0_prefix "sys_getegid").return ?,
+	kprobe.function(@arch_syscall0_prefix "sys_getegid16").return ?
+{
+	@_SYSCALL_GETEGID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getegid.return = __tp_syscall.getegid.return, __tp_syscall.getegid16.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETEGID_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.getegid.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_getegid"), @const("__NR_compat_getegid32"))
+}
+probe __tp_syscall.getegid16.return = kernel.trace("sys_exit")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getegid"))
+}

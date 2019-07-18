@@ -1,0 +1,93 @@
+# creat
+# long sys_creat(const char __user * pathname, int mode)
+
+@define _SYSCALL_CREAT_NAME
+%(
+	name = "creat"
+%)
+
+@define _SYSCALL_CREAT_ARGSTR
+%(
+	argstr = sprintf("%s, %#o", pathname, mode)
+%)
+
+@define _SYSCALL_CREAT_REGARGS
+%(
+	pathname = user_string_quoted(pointer_arg(1))
+	mode = uint_arg(2)
+%)
+
+probe syscall.creat = dw_syscall.creat !, nd_syscall.creat ? {}
+probe syscall.creat.return = dw_syscall.creat.return !, nd_syscall.creat.return ? {}
+
+# dw_creat _____________________________________________________
+
+probe dw_syscall.creat = kernel.function("sys_creat").call ?
+{
+	@_SYSCALL_CREAT_NAME
+	mode = __uint32($mode)
+	pathname = user_string_quoted($pathname)
+	@_SYSCALL_CREAT_ARGSTR
+}
+probe dw_syscall.creat.return = kernel.function("sys_creat").return ?
+{
+	@_SYSCALL_CREAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_creat _____________________________________________________
+
+probe nd_syscall.creat = nd1_syscall.creat!, nd2_syscall.creat!, tp_syscall.creat
+  { }
+
+probe nd1_syscall.creat = kprobe.function("sys_creat") ?
+{
+	@_SYSCALL_CREAT_NAME
+	asmlinkage()
+	@_SYSCALL_CREAT_REGARGS
+	@_SYSCALL_CREAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.creat = kprobe.function(@arch_syscall_prefix "sys_creat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CREAT_NAME
+	@_SYSCALL_CREAT_REGARGS
+	@_SYSCALL_CREAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because of it affects all syscalls */
+probe tp_syscall.creat = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_creat"), @const("__NR_compat_creat"))
+	@_SYSCALL_CREAT_NAME
+	@_SYSCALL_CREAT_REGARGS
+	@_SYSCALL_CREAT_ARGSTR
+}
+
+probe nd_syscall.creat.return = nd1_syscall.creat.return!, nd2_syscall.creat.return!, tp_syscall.creat.return
+  { }
+
+probe nd1_syscall.creat.return = kprobe.function("sys_creat").return ?
+{
+	@_SYSCALL_CREAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.creat.return = kprobe.function(@arch_syscall_prefix "sys_creat").return ?
+{
+	@_SYSCALL_CREAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because of it affects all syscalls */
+probe tp_syscall.creat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_creat"), @const("__NR_compat_creat"))
+	@_SYSCALL_CREAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

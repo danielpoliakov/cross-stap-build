@@ -1,0 +1,101 @@
+# sysinfo ____________________________________________________
+#
+# long sys_sysinfo(struct sysinfo __user *info)
+# long compat_sys_sysinfo(struct compat_sysinfo __user *info)
+
+@define _SYSCALL_SYSINFO_NAME
+%(
+	name = "sysinfo"
+%)
+
+@define _SYSCALL_SYSINFO_ARGSTR
+%(
+	argstr = sprintf("%s", info_str)
+%)
+
+@define _SYSCALL_SYSINFO_REGARGS
+%(
+	info_uaddr = pointer_arg(1)
+	info_str = _struct_sysinfo_u(info_uaddr)
+%)
+
+probe syscall.sysinfo = dw_syscall.sysinfo !, nd_syscall.sysinfo ? {}
+probe syscall.sysinfo.return = dw_syscall.sysinfo.return !, nd_syscall.sysinfo.return ? {}
+
+# dw_sysinfo _____________________________________________________
+
+probe dw_syscall.sysinfo = kernel.function("compat_sys_sysinfo").call ?,
+                        kernel.function("sys_sysinfo").call
+{
+	@_SYSCALL_SYSINFO_NAME
+	info_uaddr = $info
+	info_str = _struct_sysinfo_u(info_uaddr)
+	@_SYSCALL_SYSINFO_ARGSTR
+}
+probe dw_syscall.sysinfo.return = kernel.function("compat_sys_sysinfo").return ?,
+                               kernel.function("sys_sysinfo").return
+{
+	@_SYSCALL_SYSINFO_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sysinfo _____________________________________________________
+
+probe nd_syscall.sysinfo = nd1_syscall.sysinfo!, nd2_syscall.sysinfo!, tp_syscall.sysinfo
+  { }
+
+probe nd1_syscall.sysinfo = kprobe.function("compat_sys_sysinfo") ?,
+                            kprobe.function("sys_sysinfo") ?
+{
+	@_SYSCALL_SYSINFO_NAME
+	asmlinkage()
+	@_SYSCALL_SYSINFO_REGARGS
+	@_SYSCALL_SYSINFO_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sysinfo = kprobe.function(@arch_syscall_prefix "compat_sys_sysinfo") ?,
+                            kprobe.function(@arch_syscall_prefix "sys_sysinfo") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SYSINFO_NAME
+	@_SYSCALL_SYSINFO_REGARGS
+	@_SYSCALL_SYSINFO_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sysinfo = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sysinfo"), @const("__NR_compat_sysinfo"))
+	@_SYSCALL_SYSINFO_NAME
+	@_SYSCALL_SYSINFO_REGARGS
+	@_SYSCALL_SYSINFO_ARGSTR
+}
+
+probe nd_syscall.sysinfo.return = nd1_syscall.sysinfo.return!, nd2_syscall.sysinfo.return!, tp_syscall.sysinfo.return
+  { }
+
+probe nd1_syscall.sysinfo.return = kprobe.function("compat_sys_sysinfo").return ?,
+                                   kprobe.function("sys_sysinfo").return ?
+{
+	@_SYSCALL_SYSINFO_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sysinfo.return = kprobe.function(@arch_syscall_prefix "compat_sys_sysinfo").return ?,
+                                   kprobe.function(@arch_syscall_prefix "sys_sysinfo").return ?
+{
+	@_SYSCALL_SYSINFO_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sysinfo.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sysinfo"), @const("__NR_compat_sysinfo"))
+	@_SYSCALL_SYSINFO_NAME
+	@SYSC_RETVALSTR($ret)
+}

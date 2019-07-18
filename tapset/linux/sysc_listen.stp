@@ -1,0 +1,219 @@
+# listen _____________________________________________________
+# long sys_listen(int fd, int backlog)
+
+@define _SYSCALL_LISTEN_NAME
+%(
+	name = "listen"
+%)
+
+@define _SYSCALL_LISTEN_ARGSTR
+%(
+	argstr = sprintf("%d, %d", sockfd, backlog)
+%)
+
+@define _SYSCALL_LISTEN_REGARGS
+%(
+	sockfd = int_arg(1)
+	backlog = int_arg(2)
+%)
+
+@define _SYSCALL_SOCKETCALL_LISTEN_REGARGS
+%(
+	__args = &@ulong_cast(pointer_arg(2))
+	sockfd = __int32(user_ulong(&@ulong_cast(__args)[0]))
+	backlog = __int32(user_ulong(&@ulong_cast(__args)[1]))
+%)
+
+@define _SYSCALL_COMPAT_SOCKETCALL_LISTEN_REGARGS
+%(
+	__args = &@uint_cast(pointer_arg(2))
+	sockfd = user_int(&@uint_cast(__args)[0])
+	backlog = user_int(&@uint_cast(__args)[1])
+%)
+
+probe syscall.listen = dw_syscall.listen !, nd_syscall.listen ? {}
+probe syscall.listen.return = dw_syscall.listen.return !,
+                              nd_syscall.listen.return ? {}
+
+# dw_listen _____________________________________________________
+
+probe dw_syscall.listen = __syscall.listen ?, __syscall.socketcall.listen ?,
+	__syscall.compat_socketcall.listen ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@_SYSCALL_LISTEN_ARGSTR
+}
+probe __syscall.listen = kernel.function("sys_listen").call ?
+{
+	@__syscall_gate(@const("__NR_listen"))
+	sockfd = __int32($fd)
+	backlog = __int32($backlog)
+}
+probe __syscall.socketcall.listen = kernel.function("sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_LISTEN")) next;
+	sockfd = __int32(user_ulong(&@ulong_cast($args)[0]))
+	backlog = __int32(user_ulong(&@ulong_cast($args)[1]))
+}
+probe __syscall.compat_socketcall.listen =
+	kernel.function("compat_sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_LISTEN")) next;
+	sockfd = user_int(&@uint_cast($args)[0])
+	backlog = user_int(&@uint_cast($args)[1])
+}
+probe dw_syscall.listen.return = __syscall.listen.return ?,
+	__syscall.socketcall.listen.return ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.listen.return = kernel.function("sys_listen").return ?
+{
+	@__syscall_gate(@const("__NR_listen"))
+}
+probe __syscall.socketcall.listen.return =
+	kernel.function("sys_socketcall").return ?,
+	kernel.function("compat_sys_socketcall").return ?
+{
+	if (__int32(@entry($call)) != @const("SYS_LISTEN")) next;
+}
+
+# nd_listen _____________________________________________________
+
+probe nd_syscall.listen = nd1_syscall.listen!, nd2_syscall.listen!, tp_syscall.listen
+  { }
+
+probe nd1_syscall.listen = __nd1_syscall.listen ?,
+	__nd1_syscall.socketcall.listen ?,
+	__nd1_syscall.compat_socketcall.listen ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@_SYSCALL_LISTEN_ARGSTR
+}
+probe __nd1_syscall.listen = kprobe.function("sys_listen") ?
+{
+	@__syscall_gate(@const("__NR_listen"))
+	asmlinkage()
+	@_SYSCALL_LISTEN_REGARGS
+}
+probe __nd1_syscall.socketcall.listen = kprobe.function("sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+	@_SYSCALL_SOCKETCALL_LISTEN_REGARGS
+}
+probe __nd1_syscall.compat_socketcall.listen =
+	kprobe.function("compat_sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_LISTEN_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.listen = __nd2_syscall.listen ?,
+	__nd2_syscall.socketcall.listen ?,
+	__nd2_syscall.compat_socketcall.listen ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@_SYSCALL_LISTEN_ARGSTR
+}
+probe __nd2_syscall.listen = kprobe.function(@arch_syscall_prefix "sys_listen") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LISTEN_REGARGS
+}
+probe __nd2_syscall.socketcall.listen = kprobe.function(@arch_syscall_prefix "sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+	@_SYSCALL_SOCKETCALL_LISTEN_REGARGS
+}
+probe __nd2_syscall.compat_socketcall.listen =
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_LISTEN_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.listen = __tp_syscall.listen ?,
+	__tp_syscall.socketcall.listen ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@_SYSCALL_LISTEN_ARGSTR
+}
+probe __tp_syscall.listen = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_listen"))
+	@_SYSCALL_LISTEN_REGARGS
+}
+probe __tp_syscall.socketcall.listen = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+	if (@__compat_task) {
+		@_SYSCALL_COMPAT_SOCKETCALL_LISTEN_REGARGS
+	}
+	else {
+		@_SYSCALL_SOCKETCALL_LISTEN_REGARGS
+	}
+}
+
+probe nd_syscall.listen.return = nd1_syscall.listen.return!, nd2_syscall.listen.return!, tp_syscall.listen.return
+  { }
+
+probe nd1_syscall.listen.return = __nd1_syscall.listen.return ?,
+	__nd1_syscall.socketcall.listen.return ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.listen.return = kprobe.function("sys_listen").return ?
+{
+	@__syscall_gate(@const("__NR_listen"))
+}
+probe __nd1_syscall.socketcall.listen.return =
+	kprobe.function("sys_socketcall").return ?,
+	kprobe.function("compat_sys_socketcall").return ?
+{
+	if (@entry(__asmlinkage_int_arg(1)) != @const("SYS_LISTEN")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.listen.return =
+	kprobe.function(@arch_syscall_prefix "sys_listen").return ?,
+	__nd2_syscall.socketcall.listen.return ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.socketcall.listen.return =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.listen.return = __tp_syscall.listen.return ?,
+	__tp_syscall.socketcall.listen.return ?
+{
+	@_SYSCALL_LISTEN_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.listen.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_listen"))
+}
+probe __tp_syscall.socketcall.listen.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_LISTEN")) next;
+}

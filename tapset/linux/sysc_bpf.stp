@@ -1,0 +1,98 @@
+# bpf ________________________________________________________
+# SYSCALL_DEFINE3(bpf, int, cmd, union bpf_attr __user *, uattr,
+#                 unsigned int, size)
+
+@define _SYSCALL_BPF_NAME
+%(
+	name = "bpf"
+%)
+
+@define _SYSCALL_BPF_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %u", cmd_str, attr_uaddr, size)
+%)
+
+@define _SYSCALL_BPF_REGARGS
+%(	
+	cmd = int_arg(1)
+	cmd_str = _bpf_cmd_str(cmd)
+	attr_uaddr = pointer_arg(2)
+	size = uint_arg(3)
+%)
+
+probe syscall.bpf = dw_syscall.bpf !, nd_syscall.bpf ? {}
+probe syscall.bpf.return = dw_syscall.bpf.return !, nd_syscall.bpf.return ? {}
+
+# dw_bpf _____________________________________________________
+
+probe dw_syscall.bpf = kernel.function("sys_bpf") ?
+{
+	@_SYSCALL_BPF_NAME
+	cmd = __int32($cmd)
+	cmd_str = _bpf_cmd_str(cmd)
+	attr_uaddr = $uattr
+	size = __uint32($size)
+	@_SYSCALL_BPF_ARGSTR
+}
+probe dw_syscall.bpf.return = kernel.function("sys_bpf").return ?
+{
+	@_SYSCALL_BPF_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_bpf _____________________________________________________
+
+probe nd_syscall.bpf = nd1_syscall.bpf!, nd2_syscall.bpf!, tp_syscall.bpf
+  { }
+
+probe nd1_syscall.bpf = kprobe.function("sys_bpf") ?
+{
+	@_SYSCALL_BPF_NAME
+	asmlinkage()
+	@_SYSCALL_BPF_REGARGS
+	@_SYSCALL_BPF_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.bpf = kprobe.function(@arch_syscall_prefix "sys_bpf") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_BPF_NAME
+	@_SYSCALL_BPF_REGARGS
+	@_SYSCALL_BPF_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.bpf = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_bpf"), @const("__NR_compat_bpf"))
+	@_SYSCALL_BPF_NAME
+	@_SYSCALL_BPF_REGARGS
+	@_SYSCALL_BPF_ARGSTR
+}
+
+probe nd_syscall.bpf.return = nd1_syscall.bpf.return!, nd2_syscall.bpf.return!, tp_syscall.bpf.return
+  { }
+
+probe nd1_syscall.bpf.return = kprobe.function("sys_bpf").return ?
+{
+	@_SYSCALL_BPF_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.bpf.return = kprobe.function(@arch_syscall_prefix "sys_bpf").return ?
+{
+	@_SYSCALL_BPF_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.bpf.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_bpf"), @const("__NR_compat_bpf"))
+	@_SYSCALL_BPF_NAME
+	@SYSC_RETVALSTR($ret)
+}

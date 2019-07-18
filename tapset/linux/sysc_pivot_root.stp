@@ -1,0 +1,96 @@
+# pivot_root _________________________________________________
+#
+# long sys_pivot_root(const char __user *new_root, const char __user *put_old)
+#
+
+@define _SYSCALL_PIVOT_ROOT_NAME
+%(
+	name = "pivot_root"
+%)
+
+@define _SYSCALL_PIVOT_ROOT_ARGSTR
+%(
+	argstr = sprintf("%s, %s", new_root_str, old_root_str)
+%)
+
+@define _SYSCALL_PIVOT_ROOT_REGARGS
+%(
+	new_root_str = user_string_quoted(pointer_arg(1))
+	old_root_str = user_string_quoted(pointer_arg(2))
+%)
+
+probe syscall.pivot_root = dw_syscall.pivot_root !, nd_syscall.pivot_root ? {}
+probe syscall.pivot_root.return = dw_syscall.pivot_root.return !,
+                                  nd_syscall.pivot_root.return ? {}
+
+# dw_pivot_root _____________________________________________________
+
+probe dw_syscall.pivot_root = kernel.function("sys_pivot_root").call
+{
+	@_SYSCALL_PIVOT_ROOT_NAME
+	new_root_str = user_string_quoted($new_root)
+	old_root_str = user_string_quoted($put_old)
+	@_SYSCALL_PIVOT_ROOT_ARGSTR
+}
+probe dw_syscall.pivot_root.return = kernel.function("sys_pivot_root").return
+{
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pivot_root _____________________________________________________
+
+probe nd_syscall.pivot_root = nd1_syscall.pivot_root!, nd2_syscall.pivot_root!, tp_syscall.pivot_root
+  { }
+
+probe nd1_syscall.pivot_root = kprobe.function("sys_pivot_root") ?
+{
+	@_SYSCALL_PIVOT_ROOT_NAME
+	asmlinkage()
+	@_SYSCALL_PIVOT_ROOT_REGARGS
+	@_SYSCALL_PIVOT_ROOT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pivot_root = kprobe.function(@arch_syscall_prefix "sys_pivot_root") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@_SYSCALL_PIVOT_ROOT_REGARGS
+	@_SYSCALL_PIVOT_ROOT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pivot_root = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pivot_root"), @const("__NR_compat_pivot_root"))
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@_SYSCALL_PIVOT_ROOT_REGARGS
+	@_SYSCALL_PIVOT_ROOT_ARGSTR
+}
+
+probe nd_syscall.pivot_root.return = nd1_syscall.pivot_root.return!, nd2_syscall.pivot_root.return!, tp_syscall.pivot_root.return
+  { }
+  
+probe nd1_syscall.pivot_root.return = kprobe.function("sys_pivot_root").return ?
+{
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pivot_root.return = kprobe.function(@arch_syscall_prefix "sys_pivot_root").return ?
+{
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pivot_root.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pivot_root"), @const("__NR_compat_pivot_root"))
+	@_SYSCALL_PIVOT_ROOT_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,93 @@
+# flock ______________________________________________________
+# long sys_flock(unsigned int fd, unsigned int cmd)
+
+@define _SYSCALL_FLOCK_NAME
+%(
+	name = "flock"
+%)
+
+@define _SYSCALL_FLOCK_ARGSTR
+%(
+	argstr = sprintf("%d, %s", fd, _flock_cmd_str(operation))
+%)
+
+@define _SYSCALL_FLOCK_REGARGS
+%(
+	fd = int_arg(1)
+	operation = int_arg(2)
+%)
+
+probe syscall.flock = dw_syscall.flock !, nd_syscall.flock ? {}
+probe syscall.flock.return = dw_syscall.flock.return !, nd_syscall.flock.return ? {}
+
+# dw_flock _____________________________________________________
+
+probe dw_syscall.flock = kernel.function("sys_flock").call
+{
+	@_SYSCALL_FLOCK_NAME
+	fd = __int32($fd)
+	operation = $cmd
+	@_SYSCALL_FLOCK_ARGSTR
+}
+probe dw_syscall.flock.return = kernel.function("sys_flock").return
+{
+	@_SYSCALL_FLOCK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_flock _____________________________________________________
+
+probe nd_syscall.flock = nd1_syscall.flock!, nd2_syscall.flock!, tp_syscall.flock
+  { }
+
+probe nd1_syscall.flock = kprobe.function("sys_flock") ?
+{
+	@_SYSCALL_FLOCK_NAME
+	asmlinkage()
+	@_SYSCALL_FLOCK_REGARGS
+	@_SYSCALL_FLOCK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.flock = kprobe.function(@arch_syscall_prefix "sys_flock") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FLOCK_NAME
+	@_SYSCALL_FLOCK_REGARGS
+	@_SYSCALL_FLOCK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.flock = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_flock"), @const("__NR_compat_flock"))
+	@_SYSCALL_FLOCK_NAME
+	@_SYSCALL_FLOCK_REGARGS
+	@_SYSCALL_FLOCK_ARGSTR
+}
+
+probe nd_syscall.flock.return = nd1_syscall.flock.return!, nd2_syscall.flock.return!, tp_syscall.flock.return
+  { }
+  
+probe nd1_syscall.flock.return = kprobe.function("sys_flock").return ?
+{
+	@_SYSCALL_FLOCK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.flock.return = kprobe.function(@arch_syscall_prefix "sys_flock").return ?
+{
+	@_SYSCALL_FLOCK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.flock.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_flock"), @const("__NR_compat_flock"))
+	@_SYSCALL_FLOCK_NAME
+	@SYSC_RETVALSTR($ret)
+}

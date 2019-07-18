@@ -1,0 +1,107 @@
+# ftruncate _______________________________________________________
+#
+# asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long offset_low,
+#				    unsigned long offset_high)
+# COMPAT_SYSCALL_DEFINE3(x86_ftruncate64, unsigned int, fd, unsigned long, offset_low,
+#			 unsigned long, offset_high)
+
+@define _SYSCALL_COMPAT_FTRUNCATE64_NAME
+%(
+	name = "ftruncate"
+%)
+
+@define _SYSCALL_COMPAT_FTRUNCATE64_ARGSTR
+%(
+	argstr = sprintf("%d, %d", fd, length)
+%)
+
+@define _SYSCALL_COMPAT_FTRUNCATE64_REGARGS
+%(
+        fd = int_arg(1)
+        length = ((uint_arg(3) << 32) | uint_arg(2))
+%)
+
+probe syscall.compat_ftruncate64 = dw_syscall.compat_ftruncate64 !, nd_syscall.compat_ftruncate64 ? {}
+probe syscall.compat_ftruncate64.return = dw_syscall.compat_ftruncate64.return !, nd_syscall.compat_ftruncate64.return ? {}
+
+# dw_compat_ftruncate64 _____________________________________________________
+
+probe dw_syscall.compat_ftruncate64 =
+	kernel.function("sys32_ftruncate64").call ?,
+	kernel.function("compat_sys_x86_ftruncate64").call ?
+{
+        @_SYSCALL_COMPAT_FTRUNCATE64_NAME
+        fd = __int32($fd)
+        length = (($offset_high << 32) | $offset_low)
+        @_SYSCALL_COMPAT_FTRUNCATE64_ARGSTR
+}
+probe dw_syscall.compat_ftruncate64.return =
+	kernel.function("sys32_ftruncate64").return ?,
+	kernel.function("compat_sys_x84_ftruncate64").return ?
+{
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_ftruncate64 _____________________________________________________
+
+probe nd_syscall.compat_ftruncate64 = nd1_syscall.compat_ftruncate64!, nd2_syscall.compat_ftruncate64!, tp_syscall.compat_ftruncate64
+  { }
+
+probe nd1_syscall.compat_ftruncate64 =
+	kprobe.function("sys32_ftruncate64") ?,
+	kprobe.function("compat_sys_x86_ftruncate64") ?
+{
+	asmlinkage()
+        @_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@_SYSCALL_COMPAT_FTRUNCATE64_REGARGS
+        @_SYSCALL_COMPAT_FTRUNCATE64_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_ftruncate64 =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_ftruncate64") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@_SYSCALL_COMPAT_FTRUNCATE64_REGARGS
+	@_SYSCALL_COMPAT_FTRUNCATE64_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_ftruncate64 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_ftruncate64"))
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@_SYSCALL_COMPAT_FTRUNCATE64_REGARGS
+	@_SYSCALL_COMPAT_FTRUNCATE64_ARGSTR
+}
+
+probe nd_syscall.compat_ftruncate64.return = nd1_syscall.compat_ftruncate64.return!, nd2_syscall.compat_ftruncate64.return!, tp_syscall.compat_ftruncate64.return
+  { }
+
+probe nd1_syscall.compat_ftruncate64.return =
+	kprobe.function("sys32_ftruncate64").return ?,
+	kprobe.function("compat_sys_x86_ftruncate64").return ?
+{
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_ftruncate64.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_ftruncate64").return ?
+{
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_ftruncate64.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_ftruncate64"))
+	@_SYSCALL_COMPAT_FTRUNCATE64_NAME
+	@SYSC_RETVALSTR($ret)
+}

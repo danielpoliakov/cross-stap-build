@@ -1,0 +1,121 @@
+# ptrace _____________________________________________________
+#
+# int sys_ptrace(long request,
+#                long pid,
+#                long addr,
+#                long data)
+#
+
+@define _SYSCALL_PTRACE_NAME
+%(
+	name = "ptrace"
+%)
+
+@define _SYSCALL_PTRACE_ARGSTR
+%(
+	argstr = _ptrace_argstr(request, pid, addr, data)
+%)
+
+@define _SYSCALL_PTRACE_REGARGS
+%(
+	request = long_arg(1)
+	pid = int_arg(2)
+	addr = ulong_arg(3)
+	data = ulong_arg(4)
+%)
+
+probe syscall.ptrace = dw_syscall.ptrace !, nd_syscall.ptrace ? {}
+probe syscall.ptrace.return = dw_syscall.ptrace.return !,
+                              nd_syscall.ptrace.return ? {}
+
+# dw_ptrace _____________________________________________________
+
+probe dw_syscall.ptrace = kernel.function("sys_ptrace").call ?,
+		kernel.function("compat_sys_ptrace").call ?
+{
+	@_SYSCALL_PTRACE_NAME
+	request = @__compat_ulong($request)
+	pid = __int32($pid)
+	addr = @__compat_ulong($addr)
+	data = @__compat_ulong(@choose_defined($data, $cdata))
+	@_SYSCALL_PTRACE_ARGSTR
+}
+probe dw_syscall.ptrace.return = kernel.function("sys_ptrace").return ?,
+	kernel.function("compat_sys_ptrace").return ?
+{
+	@_SYSCALL_PTRACE_NAME
+	@SYSC_RETVALSTR($return)
+
+	geteventmsg_data = _ptrace_return_geteventmsg_data(@entry($request), @entry($data))
+	arch_prctl_addr = _ptrace_return_arch_prctl_addr(@entry($request), @entry($addr), @entry($data))
+}
+
+# nd_ptrace _____________________________________________________
+
+probe nd_syscall.ptrace = nd1_syscall.ptrace!, nd2_syscall.ptrace!, tp_syscall.ptrace
+  { }
+
+probe nd1_syscall.ptrace = kprobe.function("sys_ptrace") ?,
+	kprobe.function("compat_sys_ptrace") ?
+{
+	@_SYSCALL_PTRACE_NAME
+	asmlinkage()
+	@_SYSCALL_PTRACE_REGARGS
+	@_SYSCALL_PTRACE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ptrace = kprobe.function(@arch_syscall_prefix "sys_ptrace") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_ptrace") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PTRACE_NAME
+	@_SYSCALL_PTRACE_REGARGS
+	@_SYSCALL_PTRACE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ptrace = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ptrace"), @const("__NR_compat_ptrace"))
+	@_SYSCALL_PTRACE_NAME
+	@_SYSCALL_PTRACE_REGARGS
+	@_SYSCALL_PTRACE_ARGSTR
+}
+
+probe nd_syscall.ptrace.return = nd1_syscall.ptrace.return!, nd2_syscall.ptrace.return!, tp_syscall.ptrace.return
+  { }
+  
+probe nd1_syscall.ptrace.return = kprobe.function("sys_ptrace").return ?,
+	kprobe.function("compat_sys_ptrace").return ?
+{
+	@_SYSCALL_PTRACE_NAME
+	@SYSC_RETVALSTR(returnval())
+
+	geteventmsg_data = 0
+	arch_prctl_addr = 0
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ptrace.return = kprobe.function(@arch_syscall_prefix "sys_ptrace").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_ptrace").return ?
+{
+	@_SYSCALL_PTRACE_NAME
+	@SYSC_RETVALSTR(returnval())
+
+	geteventmsg_data = 0
+	arch_prctl_addr = 0
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ptrace.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ptrace"), @const("__NR_compat_ptrace"))
+	@_SYSCALL_PTRACE_NAME
+	@SYSC_RETVALSTR($ret)
+
+	geteventmsg_data = 0
+	arch_prctl_addr = 0
+}

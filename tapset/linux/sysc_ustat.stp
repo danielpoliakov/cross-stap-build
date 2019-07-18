@@ -1,0 +1,188 @@
+# ustat ______________________________________________________
+# long sys_ustat(unsigned dev, struct ustat __user * ubuf)
+#
+
+@define _SYSCALL_USTAT_NAME
+%(
+	name = "ustat"
+%)
+
+@define _SYSCALL_USTAT_ARGSTR
+%(
+	argstr = sprintf("%u, %p", dev, ubuf_uaddr)
+%)
+
+@define _SYSCALL_USTAT_REGARGS
+%(
+	dev = uint_arg(1)
+	ubuf_uaddr = pointer_arg(2)
+%)
+
+probe syscall.ustat = dw_syscall.ustat !, nd_syscall.ustat ? {}
+probe syscall.ustat.return = dw_syscall.ustat.return !, nd_syscall.ustat.return ? {}
+
+# dw_ustat _____________________________________________________
+
+probe dw_syscall.ustat = kernel.function("sys_ustat").call
+{
+	@_SYSCALL_USTAT_NAME
+	dev = __uint32($dev)
+	ubuf_uaddr = $ubuf
+	@_SYSCALL_USTAT_ARGSTR
+}
+probe dw_syscall.ustat.return = kernel.function("sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_ustat _____________________________________________________
+
+probe nd_syscall.ustat = nd1_syscall.ustat!, nd2_syscall.ustat!, tp_syscall.ustat
+  { }
+
+probe nd1_syscall.ustat = kprobe.function("sys_ustat") ?
+{
+	@_SYSCALL_USTAT_NAME
+	asmlinkage()
+	@_SYSCALL_USTAT_REGARGS
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ustat = kprobe.function(@arch_syscall_prefix "sys_ustat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_USTAT_NAME
+	@_SYSCALL_USTAT_REGARGS
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ustat = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_ustat"))
+	@_SYSCALL_USTAT_NAME
+	@_SYSCALL_USTAT_REGARGS
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+probe nd_syscall.ustat.return = nd1_syscall.ustat.return!, nd2_syscall.ustat.return!, tp_syscall.ustat.return
+  { }
+
+probe nd1_syscall.ustat.return = kprobe.function("sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ustat.return = kprobe.function(@arch_syscall_prefix "sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ustat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_ustat"))
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# long sys32_ustat(unsigned dev, struct ustat32 __user *u32p)
+# long compat_sys_ustat(unsigned dev, struct compat_ustat __user *u)
+#
+
+probe syscall.ustat32 = dw_syscall.ustat32 !, nd_syscall.ustat32 ? {}
+probe syscall.ustat32.return = dw_syscall.ustat32.return !,
+                               nd_syscall.ustat32.return ? {}
+
+# dw_ustat32 _____________________________________________________
+
+probe dw_syscall.ustat32 = kernel.function("compat_sys_ustat").call ?,
+      		        kernel.function("sys32_ustat").call ?
+{
+	@_SYSCALL_USTAT_NAME
+	dev = __uint32($dev)
+	ubuf_uaddr = @choose_defined($u, $u32p)
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+
+probe dw_syscall.ustat32.return = kernel.function("sys32_ustat").return ?,
+                               kernel.function("compat_sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_ustat32 _____________________________________________________
+
+probe nd_syscall.ustat32 = nd1_syscall.ustat32!, nd2_syscall.ustat32!, tp_syscall.ustat32
+  { }
+
+probe nd1_syscall.ustat32 = __nd1_syscall.ustat32 ?, __nd1_syscall.compat_ustat ?
+{
+	@_SYSCALL_USTAT_NAME
+	@_SYSCALL_USTAT_ARGSTR
+}
+probe __nd1_syscall.ustat32 = kprobe.function("sys32_ustat") ?
+{
+	@_SYSCALL_USTAT_REGARGS
+}
+probe __nd1_syscall.compat_ustat = kprobe.function("compat_sys_ustat") ?
+{
+	asmlinkage()
+	@_SYSCALL_USTAT_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ustat32 =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ustat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_USTAT_NAME
+	@_SYSCALL_USTAT_REGARGS
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ustat32 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ustat"))
+	@_SYSCALL_USTAT_NAME
+	@_SYSCALL_USTAT_REGARGS
+	@_SYSCALL_USTAT_ARGSTR
+}
+
+probe nd_syscall.ustat32.return = nd1_syscall.ustat32.return!, nd2_syscall.ustat32.return!, tp_syscall.ustat32.return
+  { }
+
+probe nd1_syscall.ustat32.return = kprobe.function("sys32_ustat").return ?,
+                                   kprobe.function("compat_sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ustat32.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ustat").return ?
+{
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ustat32.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ustat"))
+	@_SYSCALL_USTAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

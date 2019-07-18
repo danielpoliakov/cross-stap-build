@@ -1,0 +1,110 @@
+# time _______________________________________________________
+#
+# long sys_time(time_t __user * tloc)
+# long sys_time64(long __user * tloc)
+# long sys32_time(compat_time_t __user * tloc)
+# long compat_sys_time(compat_time_t __user * tloc)
+#
+
+@define _SYSCALL_TIME_NAME
+%(
+	name = "time"
+%)
+
+@define _SYSCALL_TIME_ARGSTR
+%(
+	argstr = sprintf("%p", t_uaddr)
+%)
+
+@define _SYSCALL_TIME_REGARGS
+%(
+	t_uaddr = pointer_arg(1)
+%)
+
+probe syscall.time = dw_syscall.time !, nd_syscall.time ? {}
+probe syscall.time.return = dw_syscall.time.return !, nd_syscall.time.return ? {}
+
+# dw_time _____________________________________________________
+
+probe dw_syscall.time = kernel.function("sys32_time").call ?,
+                     kernel.function("sys_time64").call ?,
+                     kernel.function("compat_sys_time").call ?,
+                     kernel.function("sys_time").call ?
+{
+	@_SYSCALL_TIME_NAME
+	t_uaddr = $tloc
+	@_SYSCALL_TIME_ARGSTR
+}
+probe dw_syscall.time.return = kernel.function("sys32_time").return ?,
+                            kernel.function("sys_time64").return ?,
+                            kernel.function("compat_sys_time").return ?,
+                            kernel.function("sys_time").return ?
+{
+	@_SYSCALL_TIME_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_time _____________________________________________________
+
+probe nd_syscall.time = nd1_syscall.time!, nd2_syscall.time!, tp_syscall.time
+  { }
+
+probe nd1_syscall.time = kprobe.function("sys32_time") ?,
+                        kprobe.function("sys_time64") ?,
+                        kprobe.function("compat_sys_time") ?,
+                        kprobe.function("sys_time") ?
+{
+	@_SYSCALL_TIME_NAME
+	asmlinkage()
+	@_SYSCALL_TIME_REGARGS
+	@_SYSCALL_TIME_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.time = kprobe.function(@arch_syscall_prefix "sys_time") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_time") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TIME_NAME
+	@_SYSCALL_TIME_REGARGS
+	@_SYSCALL_TIME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.time = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_time"), @const("__NR_compat_time"))
+	@_SYSCALL_TIME_NAME
+	@_SYSCALL_TIME_REGARGS
+	@_SYSCALL_TIME_ARGSTR
+}
+
+probe nd_syscall.time.return = nd1_syscall.time.return!, nd2_syscall.time.return!, tp_syscall.time.return
+  { }
+  
+probe nd1_syscall.time.return = kprobe.function("sys32_time").return ?,
+                               kprobe.function("sys_time64").return ?,
+                               kprobe.function("compat_sys_time").return ?,
+                               kprobe.function("sys_time").return ?
+{
+	@_SYSCALL_TIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.time.return = kprobe.function(@arch_syscall_prefix "sys_time").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_time") ?
+{
+	@_SYSCALL_TIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.time.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_time"), @const("__NR_compat_time"))
+	@_SYSCALL_TIME_NAME
+	@SYSC_RETVALSTR($ret)
+}

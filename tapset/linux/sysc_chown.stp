@@ -1,0 +1,129 @@
+# chown ______________________________________________________
+# long sys_chown(const char __user * filename, uid_t user, gid_t group)
+
+@define _SYSCALL_CHOWN_NAME
+%(
+	name = "chown"
+%)
+
+@define _SYSCALL_CHOWN_ARGSTR
+%(
+	argstr = sprintf("%s, %d, %d", path, owner, group)
+%)
+
+@define _SYSCALL_CHOWN_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	owner = __int32(uint_arg(2))
+	group = __int32(uint_arg(3))
+%)
+
+probe syscall.chown = dw_syscall.chown !, nd_syscall.chown ? {}
+probe syscall.chown.return = dw_syscall.chown.return !, nd_syscall.chown.return ? {}
+
+# dw_chown _____________________________________________________
+
+probe dw_syscall.chown = kernel.function("sys_chown").call
+{
+	// Avoid chown16() calling chown().
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_ia32_chown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	path = user_string_quoted($filename)
+	owner = __int32($user)
+	group = __int32($group)
+	@_SYSCALL_CHOWN_ARGSTR
+}
+probe dw_syscall.chown.return = kernel.function("sys_chown").return
+{
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_ia32_chown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_chown _____________________________________________________
+
+probe nd_syscall.chown = nd1_syscall.chown!, nd2_syscall.chown!, tp_syscall.chown
+  { }
+
+probe nd1_syscall.chown = kprobe.function("sys_chown") ?
+{
+	// Avoid chown16() calling chown().
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_ia32_chown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	asmlinkage()
+	@_SYSCALL_CHOWN_REGARGS
+	@_SYSCALL_CHOWN_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chown = kprobe.function(@arch_syscall_prefix "sys_chown") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CHOWN_NAME
+	@_SYSCALL_CHOWN_REGARGS
+	@_SYSCALL_CHOWN_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chown = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_compat_chown32"))
+%:
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	@_SYSCALL_CHOWN_REGARGS
+	@_SYSCALL_CHOWN_ARGSTR
+}
+
+probe nd_syscall.chown.return = nd1_syscall.chown.return!, nd2_syscall.chown.return!, tp_syscall.chown.return
+  { }
+  
+probe nd1_syscall.chown.return = kprobe.function("sys_chown").return ?
+{
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_ia32_chown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chown.return = kprobe.function(@arch_syscall_prefix "sys_chown").return ?
+{
+	@_SYSCALL_CHOWN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chown.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__syscall_compat_gate(@const("__NR_chown"), @const("__NR_compat_chown32"))
+%:
+	@__syscall_gate(@const("__NR_chown32"))
+%)
+	@_SYSCALL_CHOWN_NAME
+	@SYSC_RETVALSTR($ret)
+}

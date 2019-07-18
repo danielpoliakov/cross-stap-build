@@ -1,0 +1,95 @@
+# close ______________________________________________________
+# long sys_close(unsigned int fd)
+
+@define _SYSCALL_CLOSE_NAME
+%(
+	name = "close"
+%)
+
+@define _SYSCALL_CLOSE_ARGSTR
+%(
+	argstr = sprint(fd)
+%)
+
+@define _SYSCALL_CLOSE_REGARGS
+%(
+	fd = int_arg(1)
+%)
+
+probe syscall.close = dw_syscall.close !, nd_syscall.close ? {}
+probe syscall.close.return = dw_syscall.close.return !, nd_syscall.close.return ? {}
+
+# dw_close _____________________________________________________
+
+probe dw_syscall.close = kernel.function("sys_close").call
+{
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	fd = __int32($fd)
+	@_SYSCALL_CLOSE_ARGSTR
+}
+probe dw_syscall.close.return = kernel.function("sys_close").return
+{
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_close _____________________________________________________
+
+probe nd_syscall.close = nd1_syscall.close!, nd2_syscall.close!, tp_syscall.close
+  { }
+
+probe nd1_syscall.close = kprobe.function("sys_close") ?
+{
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	asmlinkage()
+	@_SYSCALL_CLOSE_REGARGS
+	@_SYSCALL_CLOSE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.close = kprobe.function(@arch_syscall_prefix "sys_close") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CLOSE_NAME
+	@_SYSCALL_CLOSE_REGARGS
+	@_SYSCALL_CLOSE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.close = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	@_SYSCALL_CLOSE_REGARGS
+	@_SYSCALL_CLOSE_ARGSTR
+}
+
+probe nd_syscall.close.return = nd1_syscall.close.return!, nd2_syscall.close.return!, tp_syscall.close.return
+  { }
+
+probe nd1_syscall.close.return = kprobe.function("sys_close").return ?
+{
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.close.return = kprobe.function(@arch_syscall_prefix "sys_close").return ?
+{
+	@_SYSCALL_CLOSE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.close.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_close"), @const("__NR_compat_close"))
+	@_SYSCALL_CLOSE_NAME
+	@SYSC_RETVALSTR($ret)
+}

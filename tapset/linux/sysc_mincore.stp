@@ -1,0 +1,96 @@
+# mincore ____________________________________________________
+# long sys_mincore(unsigned long start, size_t len, unsigned char __user * vec)
+#
+
+@define _SYSCALL_MINCORE_NAME
+%(
+	name = "mincore"
+%)
+
+@define _SYSCALL_MINCORE_ARGSTR
+%(
+	argstr = sprintf("%p, %u, %p", start, length, vec_uaddr)
+%)
+
+@define _SYSCALL_MINCORE_REGARGS
+%(
+	start = pointer_arg(1)
+	length = ulong_arg(2)
+	vec_uaddr = pointer_arg(3)
+%)
+
+probe syscall.mincore = dw_syscall.mincore !, nd_syscall.mincore ? {}
+probe syscall.mincore.return = dw_syscall.mincore.return !, nd_syscall.mincore.return ? {}
+
+# dw_mincore _____________________________________________________
+
+probe dw_syscall.mincore = kernel.function("sys_mincore").call ?
+{
+	@_SYSCALL_MINCORE_NAME
+	start = $start
+	length = __ulong($len)
+	vec_uaddr = $vec
+	@_SYSCALL_MINCORE_ARGSTR
+}
+probe dw_syscall.mincore.return = kernel.function("sys_mincore").return ?
+{
+	@_SYSCALL_MINCORE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mincore _____________________________________________________
+
+probe nd_syscall.mincore = nd1_syscall.mincore!, nd2_syscall.mincore!, tp_syscall.mincore
+  { }
+
+probe nd1_syscall.mincore = kprobe.function("sys_mincore") ?
+{
+	@_SYSCALL_MINCORE_NAME
+	asmlinkage()
+	@_SYSCALL_MINCORE_REGARGS
+	@_SYSCALL_MINCORE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mincore = kprobe.function(@arch_syscall_prefix "sys_mincore") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MINCORE_NAME
+	@_SYSCALL_MINCORE_REGARGS
+	@_SYSCALL_MINCORE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mincore = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mincore"), @const("__NR_compat_mincore"))
+	@_SYSCALL_MINCORE_NAME
+	@_SYSCALL_MINCORE_REGARGS
+	@_SYSCALL_MINCORE_ARGSTR
+}
+
+probe nd_syscall.mincore.return = nd1_syscall.mincore.return!, nd2_syscall.mincore.return!, tp_syscall.mincore.return
+  { }
+  
+probe nd1_syscall.mincore.return = kprobe.function("sys_mincore").return ?
+{
+	@_SYSCALL_MINCORE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mincore.return = kprobe.function(@arch_syscall_prefix "sys_mincore").return ?
+{
+	@_SYSCALL_MINCORE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mincore.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mincore"), @const("__NR_compat_mincore"))
+	@_SYSCALL_MINCORE_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,80 @@
+# gettid _____________________________________________________
+# long sys_gettid(void)
+
+@define _SYSCALL_GETTID_NAME
+%(
+	name = "gettid"
+%)
+
+@define _SYSCALL_GETTID_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.gettid = dw_syscall.gettid !, nd_syscall.gettid {}
+probe syscall.gettid.return = dw_syscall.gettid.return !,
+                              nd_syscall.gettid.return {}
+
+# dw_gettid _____________________________________________________
+
+probe dw_syscall.gettid = kernel.function("sys_gettid").call
+{
+	@_SYSCALL_GETTID_NAME
+	@_SYSCALL_GETTID_ARGSTR
+}
+probe dw_syscall.gettid.return = kernel.function("sys_gettid").return
+{
+	@_SYSCALL_GETTID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_gettid _____________________________________________________
+
+probe nd_syscall.gettid = nd1_syscall.gettid!, nd2_syscall.gettid!, tp_syscall.gettid
+  { }
+
+probe nd1_syscall.gettid = kprobe.function("sys_gettid")
+{
+	@_SYSCALL_GETTID_NAME
+	@_SYSCALL_GETTID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.gettid = kprobe.function(@arch_syscall0_prefix "sys_gettid") ?
+{
+	@_SYSCALL_GETTID_NAME
+	@_SYSCALL_GETTID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.gettid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_gettid"), @const("__NR_compat_gettid"))
+	@_SYSCALL_GETTID_NAME
+	@_SYSCALL_GETTID_ARGSTR
+}
+
+probe nd_syscall.gettid.return = nd1_syscall.gettid.return!, nd2_syscall.gettid.return!, tp_syscall.gettid.return
+  { }
+  
+probe nd1_syscall.gettid.return = kprobe.function("sys_gettid").return
+{
+	@_SYSCALL_GETTID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.gettid.return = kprobe.function(@arch_syscall0_prefix "sys_gettid").return ?
+{
+	@_SYSCALL_GETTID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.gettid.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_gettid"), @const("__NR_compat_gettid"))
+	@_SYSCALL_GETTID_NAME
+	@SYSC_RETVALSTR($ret)
+}

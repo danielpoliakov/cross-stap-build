@@ -1,0 +1,99 @@
+# llistxattr _________________________________________________
+# ssize_t sys_llistxattr(char __user *path, char __user *list, size_t size)
+#
+
+@define _SYSCALL_LLISTXATTR_NAME
+%(
+	name = "llistxattr"
+%)
+
+@define _SYSCALL_LLISTXATTR_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %u", path, list_uaddr, size)
+%)
+
+@define _SYSCALL_LLISTXATTR_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+	list_uaddr = pointer_arg(2)
+	size = ulong_arg(3)
+%)
+
+probe syscall.llistxattr = dw_syscall.llistxattr !, nd_syscall.llistxattr ? {}
+probe syscall.llistxattr.return = dw_syscall.llistxattr.return !,
+                                  nd_syscall.llistxattr.return ? {}
+
+# dw_llistxattr _____________________________________________________
+
+probe dw_syscall.llistxattr = kernel.function("sys_llistxattr").call
+{
+	@_SYSCALL_LLISTXATTR_NAME
+	list_uaddr = $list
+	size = __ulong($size)
+	path_uaddr = @choose_defined($pathname, $path)
+	path = user_string_quoted(@choose_defined($pathname, $path))
+	@_SYSCALL_LLISTXATTR_ARGSTR
+}
+probe dw_syscall.llistxattr.return = kernel.function("sys_llistxattr").return
+{
+	@_SYSCALL_LLISTXATTR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_llistxattr _____________________________________________________
+
+probe nd_syscall.llistxattr = nd1_syscall.llistxattr!, nd2_syscall.llistxattr!, tp_syscall.llistxattr
+  { }
+
+probe nd1_syscall.llistxattr = kprobe.function("sys_llistxattr") ?
+{
+	@_SYSCALL_LLISTXATTR_NAME
+	asmlinkage()
+	@_SYSCALL_LLISTXATTR_REGARGS
+	@_SYSCALL_LLISTXATTR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.llistxattr = kprobe.function(@arch_syscall_prefix "sys_llistxattr") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LLISTXATTR_NAME
+	@_SYSCALL_LLISTXATTR_REGARGS
+	@_SYSCALL_LLISTXATTR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.llistxattr = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_llistxattr"), @const("__NR_compat_llistxattr"))
+	@_SYSCALL_LLISTXATTR_NAME
+	@_SYSCALL_LLISTXATTR_REGARGS
+	@_SYSCALL_LLISTXATTR_ARGSTR
+}
+
+probe nd_syscall.llistxattr.return = nd1_syscall.llistxattr.return!, nd2_syscall.llistxattr.return!, tp_syscall.llistxattr.return
+  { }
+  
+probe nd1_syscall.llistxattr.return = kprobe.function("sys_llistxattr").return ?
+{
+	@_SYSCALL_LLISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.llistxattr.return = kprobe.function(@arch_syscall_prefix "sys_llistxattr").return ?
+{
+	@_SYSCALL_LLISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.llistxattr.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_llistxattr"), @const("__NR_compat_llistxattr"))
+	@_SYSCALL_LLISTXATTR_NAME
+	@SYSC_RETVALSTR($ret)
+}

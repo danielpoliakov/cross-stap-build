@@ -1,0 +1,121 @@
+# fork _______________________________________________________
+#
+# SYSCALL_DEFINE0(fork)
+#
+
+@define _SYSCALL_FORK_NAME
+%(
+	name = "fork"
+%)
+
+@define _SYSCALL_FORK_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.fork = dw_syscall.fork !, nd_syscall.fork ? {}
+probe syscall.fork.return = dw_syscall.fork.return !, nd_syscall.fork.return ? {}
+
+# dw_fork _____________________________________________________
+
+probe dw_syscall.fork = kernel.function("sys_fork").call ?
+{
+%(systemtap_v < "2.3" %?
+	regs = 0
+%)
+%(systemtap_v < "2.5" %?
+	clone_flags = 0
+	stack_start = 0
+	stack_size = 0
+	parent_tid_uaddr = 0
+	child_tid_uaddr = 0
+%)
+	@_SYSCALL_FORK_NAME
+	@_SYSCALL_FORK_ARGSTR
+}
+probe dw_syscall.fork.return = kernel.function("sys_fork").return ?
+{
+	@_SYSCALL_FORK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fork _____________________________________________________
+
+probe nd_syscall.fork = nd1_syscall.fork!, nd2_syscall.fork!, tp_syscall.fork
+  { }
+
+probe nd1_syscall.fork = kprobe.function("sys_fork").call ?
+{
+%(systemtap_v < "2.3" %?
+	regs = 0
+%)
+%(systemtap_v < "2.5" %?
+	clone_flags = 0
+	stack_start = 0
+	stack_size = 0
+	parent_tid_uaddr = 0
+	child_tid_uaddr = 0
+%)
+	@_SYSCALL_FORK_NAME
+	@_SYSCALL_FORK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fork = kprobe.function(@arch_syscall0_prefix "sys_fork") ?
+{
+%(systemtap_v < "2.3" %?
+	regs = 0
+%)
+%(systemtap_v < "2.5" %?
+	clone_flags = 0
+	stack_start = 0
+	stack_size = 0
+	parent_tid_uaddr = 0
+	child_tid_uaddr = 0
+%)
+	@_SYSCALL_FORK_NAME
+	@_SYSCALL_FORK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fork = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_fork"), @const("__NR_compat_fork"))
+%(systemtap_v < "2.3" %?
+	regs = 0
+%)
+%(systemtap_v < "2.5" %?
+	clone_flags = 0
+	stack_start = 0
+	stack_size = 0
+	parent_tid_uaddr = 0
+	child_tid_uaddr = 0
+%)
+	@_SYSCALL_FORK_NAME
+	@_SYSCALL_FORK_ARGSTR
+}
+
+probe nd_syscall.fork.return = nd1_syscall.fork.return!, nd2_syscall.fork.return!, tp_syscall.fork.return
+  { }
+  
+probe nd1_syscall.fork.return = kprobe.function("sys_fork").return ?
+{
+	@_SYSCALL_FORK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fork.return = kprobe.function(@arch_syscall0_prefix "sys_fork").return ?
+{
+	@_SYSCALL_FORK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fork.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fork"), @const("__NR_compat_fork"))
+	@_SYSCALL_FORK_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,121 @@
+# sigaltstack ________________________________________________
+#
+# In kernel 3.8, CONFIG_GENERIC_SIGALTSTACK was added by
+# kernel commit 6bf9adfc90370b695cb111116e15fdc0e1906270.
+#
+# Then, in kernel 3.9, all architectures were switched to using the
+# generic sigaltstack by kernel commit
+# d64008a8f30e0b381b292788ec6f3ee509b3bb40, which also removed the
+# CONFIG_GENERIC_SIGALTSTACK config variable.
+#
+# Thus the following preprocessor test.
+%( CONFIG_GENERIC_SIGALTSTACK == "y" || kernel_v >= "3.9" %?
+
+# SYSCALL_DEFINE2(sigaltstack,const stack_t __user *,uss, stack_t __user *,uoss)
+# COMPAT_SYSCALL_DEFINE2(sigaltstack,
+#			const compat_stack_t __user *, uss_ptr,
+#			compat_stack_t __user *, uoss_ptr)
+#
+
+@define _SYSCALL_SIGALTSTACK_NAME
+%(
+	name = "sigaltstack"
+%)
+
+@define _SYSCALL_SIGALTSTACK_ARGSTR
+%(
+	argstr = sprintf("%s, %p", uss_str, uoss_uaddr)
+%)
+
+@define _SYSCALL_SIGALTSTACK_REGARGS
+%(
+	uss_uaddr = pointer_arg(1)
+	uss_str = (@__compat_task ? _stp_compat_sigaltstack_u(uss_uaddr)
+	          : _stp_sigaltstack_u(uss_uaddr))
+	uoss_uaddr = pointer_arg(2)
+%)
+
+probe syscall.sigaltstack = dw_syscall.sigaltstack !, nd_syscall.sigaltstack ? {}
+probe syscall.sigaltstack.return = dw_syscall.sigaltstack.return !,
+                                   nd_syscall.sigaltstack.return ? {}
+
+# dw_sigaltstack _____________________________________________________
+
+probe dw_syscall.sigaltstack = kernel.function("sys_sigaltstack").call,
+	kernel.function("compat_sys_sigaltstack").call ?
+{
+	@_SYSCALL_SIGALTSTACK_NAME
+	uss_uaddr = @__pointer(@choose_defined($uss, $uss_ptr))
+	uss_str = (@__compat_task ? _stp_compat_sigaltstack_u(uss_uaddr)
+	          : _stp_sigaltstack_u(uss_uaddr))
+	uoss_uaddr = @__pointer(@choose_defined($uoss, $uoss_ptr))
+	@_SYSCALL_SIGALTSTACK_ARGSTR
+}
+probe dw_syscall.sigaltstack.return = kernel.function("sys_sigaltstack").return,
+	kernel.function("compat_sys_sigaltstack").return ?
+{
+	@_SYSCALL_SIGALTSTACK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sigaltstack _____________________________________________________
+
+probe nd_syscall.sigaltstack = nd1_syscall.sigaltstack!, nd2_syscall.sigaltstack!, tp_syscall.sigaltstack
+  { }
+
+probe nd1_syscall.sigaltstack = kprobe.function("sys_sigaltstack"),
+	kprobe.function("compat_sys_sigaltstack") ?
+{
+	@_SYSCALL_SIGALTSTACK_NAME
+	asmlinkage()
+	@_SYSCALL_SIGALTSTACK_REGARGS
+	@_SYSCALL_SIGALTSTACK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigaltstack = kprobe.function(@arch_syscall_prefix "sys_sigaltstack") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigaltstack") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SIGALTSTACK_NAME
+	@_SYSCALL_SIGALTSTACK_REGARGS
+	@_SYSCALL_SIGALTSTACK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaltstack = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigaltstack"), @const("__NR_compat_sigaltstack"))
+	@_SYSCALL_SIGALTSTACK_NAME
+	@_SYSCALL_SIGALTSTACK_REGARGS
+	@_SYSCALL_SIGALTSTACK_ARGSTR
+}
+
+probe nd_syscall.sigaltstack.return = nd1_syscall.sigaltstack.return!, nd2_syscall.sigaltstack.return!, tp_syscall.sigaltstack.return
+  { }
+
+probe nd1_syscall.sigaltstack.return = kprobe.function("sys_sigaltstack").return,
+	kprobe.function("compat_sys_sigaltstack").return ?
+{
+	@_SYSCALL_SIGALTSTACK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigaltstack.return = kprobe.function(@arch_syscall_prefix "sys_sigaltstack").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigaltstack").return ?
+{
+	@_SYSCALL_SIGALTSTACK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaltstack.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigaltstack"), @const("__NR_compat_sigaltstack"))
+	@_SYSCALL_SIGALTSTACK_NAME
+	@SYSC_RETVALSTR($ret)
+}
+%)

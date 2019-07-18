@@ -1,0 +1,117 @@
+# sigpending _________________________________________________
+# SYSCALL_DEFINE1(sigpending, old_sigset_t __user *, set)
+# COMPAT_SYSCALL_DEFINE1(sigpending, compat_old_sigset_t __user *, set)
+#
+
+@define _SYSCALL_SIGPENDING_NAME
+%(
+	name = "sigpending"
+%)
+
+@define _SYSCALL_SIGPENDING_ARGSTR
+%(
+	argstr = sprintf("%p", set)
+%)
+
+@define _SYSCALL_SIGPENDING_REGARGS
+%(
+	set = pointer_arg(1)
+%)
+
+probe syscall.sigpending = dw_syscall.sigpending !, nd_syscall.sigpending ? {}
+probe syscall.sigpending.return = dw_syscall.sigpending.return !,
+                                  nd_syscall.sigpending.return ? {}
+
+# dw_sigpending _____________________________________________________
+
+probe dw_syscall.sigpending = __syscall.sigpending ?,
+	kernel.function("compat_sys_sigpending").call ?
+{
+	@_SYSCALL_SIGPENDING_NAME
+	set = @choose_defined($set, $set32)
+	@_SYSCALL_SIGPENDING_ARGSTR
+}
+probe __syscall.sigpending = kernel.function("sys_sigpending").call ?
+{
+	@__syscall_gate_compat_simple
+}
+probe dw_syscall.sigpending.return = __syscall.sigpending.return ?,
+	kernel.function("compat_sys_sigpending").return ?
+{
+	@_SYSCALL_SIGPENDING_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.sigpending.return = kernel.function("sys_sigpending").return ?
+{
+	@__syscall_gate_compat_simple
+}
+
+# nd_sigpending _____________________________________________________
+
+probe nd_syscall.sigpending = nd1_syscall.sigpending!, nd2_syscall.sigpending!, tp_syscall.sigpending
+  { }
+
+probe nd1_syscall.sigpending = __nd1_syscall.sigpending ?,
+	kprobe.function("compat_sys_sigpending") ?
+{
+	@_SYSCALL_SIGPENDING_NAME
+	asmlinkage()
+	@_SYSCALL_SIGPENDING_REGARGS
+	@_SYSCALL_SIGPENDING_ARGSTR
+}
+probe __nd1_syscall.sigpending = kprobe.function("sys_sigpending") ?
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigpending =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigpending") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SIGPENDING_NAME
+	@_SYSCALL_SIGPENDING_REGARGS
+	@_SYSCALL_SIGPENDING_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigpending = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigpending"), @const("__NR_compat_sigpending"))
+	@_SYSCALL_SIGPENDING_NAME
+	@_SYSCALL_SIGPENDING_REGARGS
+	@_SYSCALL_SIGPENDING_ARGSTR
+}
+
+probe nd_syscall.sigpending.return = nd1_syscall.sigpending.return!, nd2_syscall.sigpending.return!, tp_syscall.sigpending.return
+  { }
+
+probe nd1_syscall.sigpending.return = __nd1_syscall.sigpending.return ?,
+	kprobe.function("compat_sys_sigpending").return ?
+{
+	@_SYSCALL_SIGPENDING_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.sigpending.return =
+	kprobe.function("sys_sigpending").return ?
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigpending.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigpending").return ?
+{
+	@_SYSCALL_SIGPENDING_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigpending.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigpending"), @const("__NR_compat_sigpending"))
+	@_SYSCALL_SIGPENDING_NAME
+	@SYSC_RETVALSTR($ret)
+}

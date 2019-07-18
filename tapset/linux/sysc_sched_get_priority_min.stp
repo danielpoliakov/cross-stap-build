@@ -1,0 +1,98 @@
+# sched_get_priority_min _____________________________________
+#
+# asmlinkage long
+# sys_sched_get_priority_min(int policy)
+#
+
+@define _SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+%(
+	name = "sched_get_priority_min"
+%)
+
+@define _SYSCALL_SCHED_GET_PRIORITY_MIN_ARGSTR
+%(
+	argstr = policy_str
+%)
+
+@define _SYSCALL_SCHED_GET_PRIORITY_MIN_REGARGS
+%(
+	policy = int_arg(1)
+	policy_str = _sched_policy_str(policy)
+%)
+
+probe syscall.sched_get_priority_min = dw_syscall.sched_get_priority_min !,
+                                       nd_syscall.sched_get_priority_min ? {}
+probe syscall.sched_get_priority_min.return = dw_syscall.sched_get_priority_min.return !,
+                                              nd_syscall.sched_get_priority_min.return ? {}
+
+# dw_sched_get_priority_min _____________________________________________________
+
+probe dw_syscall.sched_get_priority_min = kernel.function("sys_sched_get_priority_min").call
+{
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	policy = __int32($policy)
+	policy_str = _sched_policy_str(policy)
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_ARGSTR
+}
+probe dw_syscall.sched_get_priority_min.return = kernel.function("sys_sched_get_priority_min").return
+{
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sched_get_priority_min _____________________________________________________
+
+probe nd_syscall.sched_get_priority_min = nd1_syscall.sched_get_priority_min!, nd2_syscall.sched_get_priority_min!, tp_syscall.sched_get_priority_min
+  { }
+
+probe nd1_syscall.sched_get_priority_min = kprobe.function("sys_sched_get_priority_min") ?
+{
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	asmlinkage()
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_REGARGS
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_get_priority_min = kprobe.function(@arch_syscall_prefix "sys_sched_get_priority_min") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_REGARGS
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_get_priority_min = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_get_priority_min"), @const("__NR_compat_sched_get_priority_min"))
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_REGARGS
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_ARGSTR
+}
+
+probe nd_syscall.sched_get_priority_min.return = nd1_syscall.sched_get_priority_min.return!, nd2_syscall.sched_get_priority_min.return!, tp_syscall.sched_get_priority_min.return
+  { }
+  
+probe nd1_syscall.sched_get_priority_min.return = kprobe.function("sys_sched_get_priority_min").return ?
+{
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_get_priority_min.return = kprobe.function(@arch_syscall_prefix "sys_sched_get_priority_min").return ?
+{
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_get_priority_min.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_get_priority_min"), @const("__NR_compat_sched_get_priority_min"))
+	@_SYSCALL_SCHED_GET_PRIORITY_MIN_NAME
+	@SYSC_RETVALSTR($ret)
+}

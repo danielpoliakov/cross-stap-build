@@ -1,0 +1,171 @@
+# getitimer __________________________________________________
+# sys_getitimer(int which, struct itimerval __user *value)
+#
+
+@define _SYSCALL_GETITIMER_NAME
+%(
+	name = "getitimer"
+%)
+
+@define _SYSCALL_GETITIMER_ARGSTR
+%(
+	argstr = sprintf("%s, %p", _itimer_which_str(which), value_uaddr)
+%)
+
+@define _SYSCALL_GETITIMER_REGARGS
+%(
+	which = int_arg(1)
+	value_uaddr = pointer_arg(2)
+%)
+
+probe syscall.getitimer = dw_syscall.getitimer !, nd_syscall.getitimer ? {}
+probe syscall.getitimer.return = dw_syscall.getitimer.return !,
+                                 nd_syscall.getitimer.return ? {}
+
+probe syscall.compat_getitimer = dw_syscall.compat_getitimer !,
+                                 nd_syscall.compat_getitimer ? {}
+probe syscall.compat_getitimer.return = dw_syscall.compat_getitimer.return !,
+                                        nd_syscall.compat_getitimer.return ? {}
+
+# dw_getitimer _____________________________________________________
+
+probe dw_syscall.getitimer = kernel.function("sys_getitimer").call
+{
+	@_SYSCALL_GETITIMER_NAME
+	which = __int32($which)
+	value_uaddr = $value
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+probe dw_syscall.getitimer.return = kernel.function("sys_getitimer").return
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR($return)
+}
+# long compat_sys_getitimer(int which, struct compat_itimerval __user *it
+probe dw_syscall.compat_getitimer = kernel.function("compat_sys_getitimer").call ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	which = __int32($which)
+	value_uaddr = @__pointer($it)
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+probe dw_syscall.compat_getitimer.return = kernel.function("compat_sys_getitimer").return ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getitimer _____________________________________________________
+
+probe nd_syscall.getitimer = nd1_syscall.getitimer!, nd2_syscall.getitimer!, tp_syscall.getitimer
+  { }
+
+probe nd1_syscall.getitimer = kprobe.function("sys_getitimer") ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	asmlinkage()
+	@_SYSCALL_GETITIMER_REGARGS
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getitimer = kprobe.function(@arch_syscall_prefix "sys_getitimer") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETITIMER_NAME
+	@_SYSCALL_GETITIMER_REGARGS
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getitimer = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_getitimer"))
+	@_SYSCALL_GETITIMER_NAME
+	@_SYSCALL_GETITIMER_REGARGS
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+probe nd_syscall.getitimer.return = nd1_syscall.getitimer.return!, nd2_syscall.getitimer.return!, tp_syscall.getitimer.return
+  { }
+  
+probe nd1_syscall.getitimer.return = kprobe.function("sys_getitimer").return ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getitimer.return = kprobe.function(@arch_syscall_prefix "sys_getitimer").return ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getitimer.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_getitimer"))
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# long compat_sys_getitimer(int which, struct compat_itimerval __user *it
+
+probe nd_syscall.compat_getitimer = nd1_syscall.compat_getitimer!, nd2_syscall.compat_getitimer!, tp_syscall.compat_getitimer
+  { }
+
+probe nd1_syscall.compat_getitimer = kprobe.function("compat_sys_getitimer") ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	asmlinkage()
+	which = int_arg(1)
+	value_uaddr = pointer_arg(2)
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_getitimer = kprobe.function(@arch_syscall_prefix "compat_sys_getitimer") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETITIMER_NAME
+	@_SYSCALL_GETITIMER_REGARGS
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_getitimer = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_getitimer"))
+	@_SYSCALL_GETITIMER_NAME
+	@_SYSCALL_GETITIMER_REGARGS
+	@_SYSCALL_GETITIMER_ARGSTR
+}
+
+probe nd_syscall.compat_getitimer.return = nd1_syscall.compat_getitimer.return!, nd2_syscall.compat_getitimer.return!, tp_syscall.compat_getitimer.return
+  { }
+  
+probe nd1_syscall.compat_getitimer.return = kprobe.function("compat_sys_getitimer").return ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_getitimer.return = kprobe.function(@arch_syscall_prefix "compat_sys_getitimer").return ?
+{
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_getitimer.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_getitimer"))
+	@_SYSCALL_GETITIMER_NAME
+	@SYSC_RETVALSTR($ret)
+}

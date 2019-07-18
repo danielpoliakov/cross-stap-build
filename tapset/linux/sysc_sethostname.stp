@@ -1,0 +1,99 @@
+# sethostname ________________________________________________
+#
+# asmlinkage long
+# sys_sethostname(char __user *name, int len)
+#
+
+@define _SYSCALL_SETHOSTNAME_NAME
+%(
+	name = "sethostname"
+%)
+
+@define _SYSCALL_SETHOSTNAME_ARGSTR
+%(
+	argstr = sprintf("%s, %d", name_str, len)
+%)
+
+@define _SYSCALL_SETHOSTNAME_REGARGS
+%(
+	hostname_uaddr = pointer_arg(1)
+	name_str = user_string_quoted(hostname_uaddr)
+	len = int_arg(2)
+%)
+
+probe syscall.sethostname = dw_syscall.sethostname !, nd_syscall.sethostname ? {}
+probe syscall.sethostname.return = dw_syscall.sethostname.return !,
+                                   nd_syscall.sethostname.return ? {}
+
+# dw_sethostname _____________________________________________________
+
+probe dw_syscall.sethostname = kernel.function("sys_sethostname").call
+{
+	@_SYSCALL_SETHOSTNAME_NAME
+	hostname_uaddr = $name
+	name_str = user_string_quoted($name)
+	len = __int32($len)
+	@_SYSCALL_SETHOSTNAME_ARGSTR
+}
+probe dw_syscall.sethostname.return = kernel.function("sys_sethostname").return
+{
+	@_SYSCALL_SETHOSTNAME_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sethostname _____________________________________________________
+
+probe nd_syscall.sethostname = nd1_syscall.sethostname!, nd2_syscall.sethostname!, tp_syscall.sethostname
+  { }
+
+probe nd1_syscall.sethostname = kprobe.function("sys_sethostname") ?
+{
+	@_SYSCALL_SETHOSTNAME_NAME
+	asmlinkage()
+	@_SYSCALL_SETHOSTNAME_REGARGS
+	@_SYSCALL_SETHOSTNAME_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sethostname = kprobe.function(@arch_syscall_prefix "sys_sethostname") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SETHOSTNAME_NAME
+	@_SYSCALL_SETHOSTNAME_REGARGS
+	@_SYSCALL_SETHOSTNAME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sethostname = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sethostname"), @const("__NR_compat_sethostname"))
+	@_SYSCALL_SETHOSTNAME_NAME
+	@_SYSCALL_SETHOSTNAME_REGARGS
+	@_SYSCALL_SETHOSTNAME_ARGSTR
+}
+
+probe nd_syscall.sethostname.return = nd1_syscall.sethostname.return!, nd2_syscall.sethostname.return!, tp_syscall.sethostname.return
+  { }
+  
+probe nd1_syscall.sethostname.return = kprobe.function("sys_sethostname").return ?
+{
+	@_SYSCALL_SETHOSTNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sethostname.return = kprobe.function(@arch_syscall_prefix "sys_sethostname").return ?
+{
+	@_SYSCALL_SETHOSTNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sethostname.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sethostname"), @const("__NR_compat_sethostname"))
+	@_SYSCALL_SETHOSTNAME_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,70 @@
+# exit _______________________________________________________
+# long sys_exit(int error_code)
+#
+# sys_exit() never returns, and is blacklisted for return probes,
+# so no alias here.  See bz6588.
+# NB: the explicit .call ensures that alias suffixes can't infer .return
+
+@define _SYSCALL_EXIT_NAME
+%(
+	name = "exit"
+%)
+
+@define _SYSCALL_EXIT_ARGSTR
+%(
+	argstr = sprint(status)
+%)
+
+@define _SYSCALL_EXIT_REGARGS
+%(
+	status = int_arg(1)
+%)
+
+probe syscall.exit = dw_syscall.exit !, nd_syscall.exit {}
+
+probe syscall.exit.return = never
+{
+	@_SYSCALL_EXIT_NAME
+	@SYSC_RETVALSTR(0)
+}
+
+# dw_exit _____________________________________________________
+
+probe dw_syscall.exit = kernel.function("sys_exit").call
+{
+	@_SYSCALL_EXIT_NAME
+	status = __int32($error_code)
+	@_SYSCALL_EXIT_ARGSTR
+}
+
+# nd_exit _____________________________________________________
+
+probe nd_syscall.exit = nd1_syscall.exit!, nd2_syscall.exit!, tp_syscall.exit
+  { }
+
+probe nd1_syscall.exit = kprobe.function("sys_exit").call
+{
+	@_SYSCALL_EXIT_NAME
+	asmlinkage()
+	@_SYSCALL_EXIT_REGARGS
+	@_SYSCALL_EXIT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.exit = kprobe.function(@arch_syscall_prefix "sys_exit")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_EXIT_NAME
+	@_SYSCALL_EXIT_REGARGS
+	@_SYSCALL_EXIT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.exit = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_exit"), @const("__NR_compat_exit"))
+	@_SYSCALL_EXIT_NAME
+	@_SYSCALL_EXIT_REGARGS
+	@_SYSCALL_EXIT_ARGSTR
+}

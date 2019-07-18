@@ -1,0 +1,94 @@
+# munlock ____________________________________________________
+# long sys_munlock(unsigned long start, size_t len)
+
+@define _SYSCALL_MUNLOCK_NAME
+%(
+	name = "munlock"
+%)
+
+@define _SYSCALL_MUNLOCK_ARGSTR
+%(
+	argstr = sprintf("%p, %d", addr, len)
+%)
+
+@define _SYSCALL_MUNLOCK_REGARGS
+%(
+	addr = ulong_arg(1)
+	len = ulong_arg(2)
+%)
+
+probe syscall.munlock = dw_syscall.munlock !, nd_syscall.munlock ? {}
+probe syscall.munlock.return = dw_syscall.munlock.return !,
+                               nd_syscall.munlock.return ? {}
+
+# dw_munlock _____________________________________________________
+
+probe dw_syscall.munlock = kernel.function("sys_munlock").call ?
+{
+	@_SYSCALL_MUNLOCK_NAME
+	addr = $start
+	len = $len
+	@_SYSCALL_MUNLOCK_ARGSTR
+}
+probe dw_syscall.munlock.return = kernel.function("sys_munlock").return ?
+{
+	@_SYSCALL_MUNLOCK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_munlock _____________________________________________________
+
+probe nd_syscall.munlock = nd1_syscall.munlock!, nd2_syscall.munlock!, tp_syscall.munlock
+  { }
+
+probe nd1_syscall.munlock = kprobe.function("sys_munlock") ?
+{
+	@_SYSCALL_MUNLOCK_NAME
+	asmlinkage()
+	@_SYSCALL_MUNLOCK_REGARGS
+	@_SYSCALL_MUNLOCK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.munlock = kprobe.function(@arch_syscall_prefix "sys_munlock") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MUNLOCK_NAME
+	@_SYSCALL_MUNLOCK_REGARGS
+	@_SYSCALL_MUNLOCK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.munlock = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_munlock"), @const("__NR_compat_munlock"))
+	@_SYSCALL_MUNLOCK_NAME
+	@_SYSCALL_MUNLOCK_REGARGS
+	@_SYSCALL_MUNLOCK_ARGSTR
+}
+
+probe nd_syscall.munlock.return = nd1_syscall.munlock.return!, nd2_syscall.munlock.return!, tp_syscall.munlock.return
+  { }
+  
+probe nd1_syscall.munlock.return = kprobe.function("sys_munlock").return ?
+{
+	@_SYSCALL_MUNLOCK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.munlock.return = kprobe.function(@arch_syscall_prefix "sys_munlock").return ?
+{
+	@_SYSCALL_MUNLOCK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.munlock.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_munlock"), @const("__NR_compat_munlock"))
+	@_SYSCALL_MUNLOCK_NAME
+	@SYSC_RETVALSTR($ret)
+}

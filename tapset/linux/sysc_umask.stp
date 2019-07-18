@@ -1,0 +1,93 @@
+# umask ______________________________________________________
+# long sys_umask(int mask)
+#
+
+@define _SYSCALL_UMASK_NAME
+%(
+	name = "umask"
+%)
+
+@define _SYSCALL_UMASK_ARGSTR
+%(
+	argstr = sprintf("%#o", mask)
+%)
+
+@define _SYSCALL_UMASK_REGARGS
+%(
+	mask = uint_arg(1)
+%)
+
+probe syscall.umask = dw_syscall.umask !, nd_syscall.umask ? {}
+probe syscall.umask.return = dw_syscall.umask.return !,
+                             nd_syscall.umask.return ? {}
+
+# dw_umask _____________________________________________________
+
+probe dw_syscall.umask = kernel.function("sys_umask").call
+{
+	@_SYSCALL_UMASK_NAME
+	mask = __uint32($mask)
+	@_SYSCALL_UMASK_ARGSTR
+}
+probe dw_syscall.umask.return = kernel.function("sys_umask").return
+{
+	@_SYSCALL_UMASK_NAME
+	@SYSC_RETVALSTR3($return)
+}
+
+# nd_umask _____________________________________________________
+
+probe nd_syscall.umask = nd1_syscall.umask!, nd2_syscall.umask!, tp_syscall.umask
+  { }
+
+probe nd1_syscall.umask = kprobe.function("sys_umask") ?
+{
+	@_SYSCALL_UMASK_NAME
+	asmlinkage()
+	@_SYSCALL_UMASK_REGARGS
+	@_SYSCALL_UMASK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.umask = kprobe.function(@arch_syscall_prefix "sys_umask") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_UMASK_NAME
+	@_SYSCALL_UMASK_REGARGS
+	@_SYSCALL_UMASK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.umask = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_umask"), @const("__NR_compat_umask"))
+	@_SYSCALL_UMASK_NAME
+	@_SYSCALL_UMASK_REGARGS
+	@_SYSCALL_UMASK_ARGSTR
+}
+
+probe nd_syscall.umask.return = nd1_syscall.umask.return!, nd2_syscall.umask.return!, tp_syscall.umask.return
+  { }
+
+probe nd1_syscall.umask.return = kprobe.function("sys_umask").return ?
+{
+	@_SYSCALL_UMASK_NAME
+	@SYSC_RETVALSTR3(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.umask.return = kprobe.function(@arch_syscall_prefix "sys_umask").return ?
+{
+	@_SYSCALL_UMASK_NAME
+	@SYSC_RETVALSTR3(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.umask.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_umask"), @const("__NR_compat_umask"))
+	@_SYSCALL_UMASK_NAME
+	@SYSC_RETVALSTR3($ret)
+}

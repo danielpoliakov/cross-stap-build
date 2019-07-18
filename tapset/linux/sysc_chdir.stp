@@ -1,0 +1,91 @@
+# chdir ______________________________________________________
+# long sys_chdir(const char __user * filename)
+
+@define _SYSCALL_CHDIR_NAME
+%(
+	name = "chdir"
+%)
+
+@define _SYSCALL_CHDIR_ARGSTR
+%(
+	argstr = path
+%)
+
+@define _SYSCALL_CHDIR_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+%)
+
+probe syscall.chdir = dw_syscall.chdir !, nd_syscall.chdir ? {}
+probe syscall.chdir.return = dw_syscall.chdir.return !, nd_syscall.chdir.return ? {}
+
+# dw_chdir _____________________________________________________
+
+probe dw_syscall.chdir = kernel.function("sys_chdir").call
+{
+	@_SYSCALL_CHDIR_NAME
+	path = user_string_quoted($filename)
+	@_SYSCALL_CHDIR_ARGSTR
+}
+probe dw_syscall.chdir.return = kernel.function("sys_chdir").return
+{
+	@_SYSCALL_CHDIR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_chdir _____________________________________________________
+
+probe nd_syscall.chdir = nd1_syscall.chdir!, nd2_syscall.chdir!, tp_syscall.chdir
+  { }
+
+probe nd1_syscall.chdir = kprobe.function("sys_chdir") ?
+{
+	@_SYSCALL_CHDIR_NAME
+	asmlinkage()
+	@_SYSCALL_CHDIR_REGARGS
+	@_SYSCALL_CHDIR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chdir = kprobe.function(@arch_syscall_prefix "sys_chdir")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CHDIR_NAME
+	@_SYSCALL_CHDIR_REGARGS
+	@_SYSCALL_CHDIR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chdir = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_chdir"), @const("__NR_compat_chdir"))
+	@_SYSCALL_CHDIR_NAME
+	@_SYSCALL_CHDIR_REGARGS
+	@_SYSCALL_CHDIR_ARGSTR
+}
+
+probe nd_syscall.chdir.return = nd1_syscall.chdir.return!, nd2_syscall.chdir.return!, tp_syscall.chdir.return
+  { }
+
+probe nd1_syscall.chdir.return = kprobe.function("sys_chdir").return ?
+{
+	@_SYSCALL_CHDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chdir.return = kprobe.function(@arch_syscall_prefix "sys_chdir").return
+{
+	@_SYSCALL_CHDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chdir.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_chdir"), @const("__NR_compat_chdir"))
+	@_SYSCALL_CHDIR_NAME
+	@SYSC_RETVALSTR($ret)
+}

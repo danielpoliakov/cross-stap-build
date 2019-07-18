@@ -1,0 +1,98 @@
+# mknod ______________________________________________________
+# long sys_mknod(const char __user * filename, int mode, unsigned dev)
+
+@define _SYSCALL_MKNOD_NAME
+%(
+	name = "mknod"
+%)
+
+@define _SYSCALL_MKNOD_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %u", pathname, mode_str, dev)
+%)
+
+@define _SYSCALL_MKNOD_REGARGS
+%(
+	pathname = user_string_quoted(pointer_arg(1))
+	mode = uint_arg(2)
+	mode_str = _mknod_mode_str(mode)
+	dev = uint_arg(3)
+%)
+
+probe syscall.mknod = dw_syscall.mknod !, nd_syscall.mknod ? {}
+probe syscall.mknod.return = dw_syscall.mknod.return !, nd_syscall.mknod.return ? {}
+
+# dw_mknod _____________________________________________________
+
+probe dw_syscall.mknod = kernel.function("sys_mknod").call
+{
+	@_SYSCALL_MKNOD_NAME
+	pathname = user_string_quoted($filename)
+	mode = __uint32($mode)
+	mode_str = _mknod_mode_str(mode)
+	dev = __uint32($dev)
+	@_SYSCALL_MKNOD_ARGSTR
+}
+
+probe dw_syscall.mknod.return = kernel.function("sys_mknod").return
+{
+	@_SYSCALL_MKNOD_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mknod _____________________________________________________
+
+probe nd_syscall.mknod = nd1_syscall.mknod!, nd2_syscall.mknod!, tp_syscall.mknod
+  { }
+
+probe nd1_syscall.mknod = kprobe.function("sys_mknod") ?
+{
+	@_SYSCALL_MKNOD_NAME
+	asmlinkage()
+	@_SYSCALL_MKNOD_REGARGS
+	@_SYSCALL_MKNOD_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mknod = kprobe.function(@arch_syscall_prefix "sys_mknod") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MKNOD_NAME
+	@_SYSCALL_MKNOD_REGARGS
+	@_SYSCALL_MKNOD_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mknod = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mknod"), @const("__NR_compat_mknod"))
+	@_SYSCALL_MKNOD_NAME
+	@_SYSCALL_MKNOD_REGARGS
+	@_SYSCALL_MKNOD_ARGSTR
+}
+
+probe nd_syscall.mknod.return = nd1_syscall.mknod.return!, nd2_syscall.mknod.return!, tp_syscall.mknod.return
+  { }
+
+probe nd1_syscall.mknod.return = kprobe.function("sys_mknod").return ?
+{
+	@_SYSCALL_MKNOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mknod.return = kprobe.function(@arch_syscall_prefix "sys_mknod").return ?
+{
+	@_SYSCALL_MKNOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mknod.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mknod"), @const("__NR_compat_mknod"))
+	@_SYSCALL_MKNOD_NAME
+	@SYSC_RETVALSTR($ret)
+}

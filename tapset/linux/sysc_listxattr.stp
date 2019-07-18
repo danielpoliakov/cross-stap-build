@@ -1,0 +1,99 @@
+# listxattr __________________________________________________
+# ssize_t sys_listxattr(char __user *path, char __user *list, size_t size)
+#
+
+@define _SYSCALL_LISTXATTR_NAME
+%(
+	name = "listxattr"
+%)
+
+@define _SYSCALL_LISTXATTR_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %u", path, list_uaddr, size)
+%)
+
+@define _SYSCALL_LISTXATTR_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+	list_uaddr = pointer_arg(2)
+	size = ulong_arg(3)
+%)
+
+probe syscall.listxattr = dw_syscall.listxattr !, nd_syscall.listxattr ? {}
+probe syscall.listxattr.return = dw_syscall.listxattr.return !,
+                                 nd_syscall.listxattr.return ? {}
+
+# dw_listxattr _____________________________________________________
+
+probe dw_syscall.listxattr = kernel.function("sys_listxattr").call
+{
+	@_SYSCALL_LISTXATTR_NAME
+	list_uaddr = $list
+	size = __ulong($size)
+	path_uaddr = @choose_defined($pathname, $path)
+	path = user_string_quoted(@choose_defined($pathname, $path))
+	@_SYSCALL_LISTXATTR_ARGSTR
+}
+probe dw_syscall.listxattr.return = kernel.function("sys_listxattr").return
+{
+	@_SYSCALL_LISTXATTR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_listxattr _____________________________________________________
+
+probe nd_syscall.listxattr = nd1_syscall.listxattr!, nd2_syscall.listxattr!, tp_syscall.listxattr
+  { }
+
+probe nd1_syscall.listxattr = kprobe.function("sys_listxattr") ?
+{
+	@_SYSCALL_LISTXATTR_NAME
+	asmlinkage()
+	@_SYSCALL_LISTXATTR_REGARGS
+	@_SYSCALL_LISTXATTR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.listxattr = kprobe.function(@arch_syscall_prefix "sys_listxattr") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LISTXATTR_NAME
+	@_SYSCALL_LISTXATTR_REGARGS
+	@_SYSCALL_LISTXATTR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.listxattr = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_listxattr"), @const("__NR_compat_listxattr"))
+	@_SYSCALL_LISTXATTR_NAME
+	@_SYSCALL_LISTXATTR_REGARGS
+	@_SYSCALL_LISTXATTR_ARGSTR
+}
+
+probe nd_syscall.listxattr.return = nd1_syscall.listxattr.return!, nd2_syscall.listxattr.return!, tp_syscall.listxattr.return
+  { }
+
+probe nd1_syscall.listxattr.return = kprobe.function("sys_listxattr").return ?
+{
+	@_SYSCALL_LISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.listxattr.return = kprobe.function(@arch_syscall_prefix "sys_listxattr").return ?
+{
+	@_SYSCALL_LISTXATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.listxattr.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_listxattr"), @const("__NR_compat_listxattr"))
+	@_SYSCALL_LISTXATTR_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,117 @@
+# mount ______________________________________________________
+# long sys_mount(char __user * dev_name,
+# 		char __user * dir_name,
+# 		char __user * type,
+# 		unsigned long flags,
+# 		void __user * data)
+# long compat_sys_mount(char __user * dev_name,
+#		char __user * dir_name,
+#		char __user * type,
+#		unsigned long flags,
+#		void __user * data)
+
+@define _SYSCALL_MOUNT_NAME
+%(
+	name = "mount"
+%)
+
+@define _SYSCALL_MOUNT_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s, %s, %s",
+	                 source, target, filesystemtype, mountflags_str, data)
+%)
+
+@define _SYSCALL_MOUNT_REGARGS
+%(
+	source = user_string_quoted(pointer_arg(1))
+	target = user_string_quoted(pointer_arg(2))
+	filesystemtype = user_string_quoted(pointer_arg(3))
+	mountflags = ulong_arg(4)
+	mountflags_str = _mountflags_str(mountflags)
+	data = user_string_n_quoted(pointer_arg(5), syscall_string_trunc)
+%)
+
+probe syscall.mount = dw_syscall.mount !, nd_syscall.mount ? {}
+probe syscall.mount.return = dw_syscall.mount.return !, nd_syscall.mount.return ? {}
+
+# dw_mount _____________________________________________________
+
+probe dw_syscall.mount = kernel.function("compat_sys_mount").call ?,
+                      kernel.function("sys_mount").call
+{
+	@_SYSCALL_MOUNT_NAME
+	source = user_string_quoted(@__pointer($dev_name))
+	target = user_string_quoted(@__pointer($dir_name))
+	filesystemtype = user_string_quoted(@__pointer($type))
+	mountflags = @__compat_ulong($flags)
+	mountflags_str = _mountflags_str(mountflags)
+	data = user_string_n_quoted(@__pointer($data), syscall_string_trunc)
+	@_SYSCALL_MOUNT_ARGSTR
+}
+probe dw_syscall.mount.return = kernel.function("compat_sys_mount").return ?,
+                             kernel.function("sys_mount").return
+{
+	@_SYSCALL_MOUNT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mount _____________________________________________________
+
+probe nd_syscall.mount = nd1_syscall.mount!, nd2_syscall.mount!, tp_syscall.mount
+  { }
+
+probe nd1_syscall.mount = kprobe.function("compat_sys_mount") ?,
+                          kprobe.function("sys_mount") ?
+{
+	@_SYSCALL_MOUNT_NAME
+	asmlinkage()
+	@_SYSCALL_MOUNT_REGARGS
+	@_SYSCALL_MOUNT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mount = kprobe.function(@arch_syscall_prefix "sys_mount") ?,
+                          kprobe.function(@arch_syscall_prefix "compat_sys_mount") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MOUNT_NAME
+	@_SYSCALL_MOUNT_REGARGS
+	@_SYSCALL_MOUNT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mount = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mount"), @const("__NR_compat_mount"))
+	@_SYSCALL_MOUNT_NAME
+	@_SYSCALL_MOUNT_REGARGS
+	@_SYSCALL_MOUNT_ARGSTR
+}
+
+probe nd_syscall.mount.return = nd1_syscall.mount.return!, nd2_syscall.mount.return!, tp_syscall.mount.return
+  { }
+  
+probe nd1_syscall.mount.return = kprobe.function("compat_sys_mount").return ?,
+                                 kprobe.function("sys_mount").return ?
+{
+	@_SYSCALL_MOUNT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mount.return = kprobe.function(@arch_syscall_prefix "sys_mount").return ?,
+                                 kprobe.function(@arch_syscall_prefix "compat_sys_mount").return ?
+{
+	@_SYSCALL_MOUNT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mount.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mount"), @const("__NR_compat_mount"))
+	@_SYSCALL_MOUNT_NAME
+	@SYSC_RETVALSTR($ret)
+}

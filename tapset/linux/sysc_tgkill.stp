@@ -1,0 +1,103 @@
+# tgkill _____________________________________________________
+#
+# asmlinkage long
+# sys_tgkill(int tgid,
+#            int pid,
+#            int sig)
+#
+
+@define _SYSCALL_TGKILL_NAME
+%(
+	name = "tgkill"
+%)
+
+@define _SYSCALL_TGKILL_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %s", tgid, pid, sig_str)
+%)
+
+@define _SYSCALL_TGKILL_REGARGS
+%(
+	tgid = int_arg(1)
+	pid = int_arg(2)
+	sig = int_arg(3)
+	sig_str = _signal_name(sig)
+%)
+
+probe syscall.tgkill = dw_syscall.tgkill !, nd_syscall.tgkill ? {}
+probe syscall.tgkill.return = dw_syscall.tgkill.return !,
+                              nd_syscall.tgkill.return ? {}
+
+# dw_tgkill _____________________________________________________
+
+probe dw_syscall.tgkill = kernel.function("sys_tgkill").call
+{
+	@_SYSCALL_TGKILL_NAME
+	tgid = __int32($tgid)
+	pid = __int32($pid)
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	@_SYSCALL_TGKILL_ARGSTR
+}
+probe dw_syscall.tgkill.return = kernel.function("sys_tgkill").return
+{
+	@_SYSCALL_TGKILL_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_tgkill _____________________________________________________
+
+probe nd_syscall.tgkill = nd1_syscall.tgkill!, nd2_syscall.tgkill!, tp_syscall.tgkill
+  { }
+
+probe nd1_syscall.tgkill = kprobe.function("sys_tgkill") ?
+{
+	@_SYSCALL_TGKILL_NAME
+	asmlinkage()
+	@_SYSCALL_TGKILL_REGARGS
+	@_SYSCALL_TGKILL_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.tgkill = kprobe.function(@arch_syscall_prefix "sys_tgkill") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TGKILL_NAME
+	@_SYSCALL_TGKILL_REGARGS
+	@_SYSCALL_TGKILL_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.tgkill = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_tgkill"), @const("__NR_compat_tgkill"))
+	@_SYSCALL_TGKILL_NAME
+	@_SYSCALL_TGKILL_REGARGS
+	@_SYSCALL_TGKILL_ARGSTR
+}
+
+probe nd_syscall.tgkill.return = nd1_syscall.tgkill.return!, nd2_syscall.tgkill.return!, tp_syscall.tgkill.return
+  { }
+
+probe nd1_syscall.tgkill.return = kprobe.function("sys_tgkill").return ?
+{
+	@_SYSCALL_TGKILL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.tgkill.return = kprobe.function(@arch_syscall_prefix "sys_tgkill").return ?
+{
+	@_SYSCALL_TGKILL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.tgkill.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_tgkill"), @const("__NR_compat_tgkill"))
+	@_SYSCALL_TGKILL_NAME
+	@SYSC_RETVALSTR($ret)
+}

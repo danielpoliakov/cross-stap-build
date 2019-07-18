@@ -1,0 +1,180 @@
+# lstat ______________________________________________________
+# long sys_lstat(char __user * filename, struct __old_kernel_stat __user * statbuf)
+# long sys_newlstat(char __user * filename, struct stat __user * statbuf)
+# long compat_sys_newlstat(char __user * filename, struct compat_stat __user *statbuf)
+# long sys32_lstat64(char * filename, struct stat64 __user *statbuf)
+# long sys_lstat64(char __user * filename, struct stat64 __user * statbuf)
+# long sys_oabi_lstat64(char __user * filename,
+#			struct oldabi_stat64 __user * statbuf)
+# COMPAT_SYSCALL_DEFINE2(s390_lstat64, const char __user *, filename, struct stat64_emu31 __user *, statbuf)
+#
+
+@define _SYSCALL_LSTAT_NAME
+%(
+	name = "lstat"
+%)
+
+@define _SYSCALL_LSTAT_ARGSTR
+%(
+	argstr = sprintf("%s, %p", path, buf_uaddr)
+%)
+
+@define _SYSCALL_LSTAT_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	buf_uaddr = pointer_arg(2)
+%)
+
+probe syscall.lstat = dw_syscall.lstat !, nd_syscall.lstat ? {}
+probe syscall.lstat.return = dw_syscall.lstat.return !,
+                             nd_syscall.lstat.return ? {}
+
+# dw_lstat _____________________________________________________
+
+probe dw_syscall.lstat = kernel.function("sys_lstat").call ?,
+                      kernel.function("sys_newlstat").call ?,
+                      kernel.function("compat_sys_newlstat").call ?,
+                      kernel.function("sys32_lstat64").call ?,
+                      kernel.function("sys_lstat64").call ?,
+%( arch == "s390" %?
+                      kernel.function("compat_sys_s390_lstat64").call ?,
+%)
+%( arch == "x86_64" %?
+                      kernel.function("compat_sys_x86_lstat64").call ?,
+%)
+                      kernel.function("sys_oabi_lstat64").call ?
+{
+	@_SYSCALL_LSTAT_NAME
+	path = user_string_quoted(@__pointer($filename))
+	buf_uaddr = @__pointer($statbuf)
+	@_SYSCALL_LSTAT_ARGSTR
+}
+probe dw_syscall.lstat.return = kernel.function("sys_lstat").return ?,
+	kernel.function("sys_newlstat").return ?,
+	kernel.function("compat_sys_newlstat").return ?,
+	kernel.function("sys32_lstat64").return ?,
+	kernel.function("sys_lstat64").return ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_lstat64").return ?,
+%)
+%( arch == "x86_64" %?
+	kernel.function("compat_sys_x86_lstat64").return ?,
+%)
+	kernel.function("sys_oabi_lstat64").return ?
+{
+	@_SYSCALL_LSTAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_lstat _____________________________________________________
+
+probe nd_syscall.lstat = nd1_syscall.lstat!, nd2_syscall.lstat!, tp_syscall.lstat
+  { }
+
+probe nd1_syscall.lstat = kprobe.function("sys_lstat") ?,
+                          kprobe.function("sys_newlstat") ?,
+                          kprobe.function("compat_sys_newlstat") ?,
+                          kprobe.function("sys32_lstat64") ?,
+                          kprobe.function("sys_lstat64") ?,
+%( arch == "s390" %?
+                          kprobe.function("compat_sys_s390_lstat64") ?,
+%)
+%( arch == "x86_64" %?
+                          kprobe.function("compat_sys_x86_lstat64") ?,
+%)
+                          kprobe.function("sys_oabi_lstat64") ?
+{
+	@_SYSCALL_LSTAT_NAME
+	asmlinkage()
+	@_SYSCALL_LSTAT_REGARGS
+	@_SYSCALL_LSTAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lstat =
+	kprobe.function(@arch_syscall_prefix "sys_lstat") ?,
+	kprobe.function(@arch_syscall_prefix "sys_newlstat") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_newlstat") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_lstat64") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LSTAT_NAME
+	@_SYSCALL_LSTAT_REGARGS
+	@_SYSCALL_LSTAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lstat = __tp_syscall.lstat,
+                         __tp_syscall.lstat64,
+                         __tp_syscall.newlstat
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_LSTAT_NAME
+	@_SYSCALL_LSTAT_REGARGS
+	@_SYSCALL_LSTAT_ARGSTR
+}
+probe __tp_syscall.lstat = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_oldlstat"), @const("__NR_compat_oldlstat"))
+}
+probe __tp_syscall.lstat64 = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_lstat64"), @const("__NR_compat_lstat64"))
+}
+probe __tp_syscall.newlstat = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_lstat"), @const("__NR_compat_lstat"))
+}
+
+probe nd_syscall.lstat.return = nd1_syscall.lstat.return!, nd2_syscall.lstat.return!, tp_syscall.lstat.return
+  { }
+
+probe nd1_syscall.lstat.return = kprobe.function("sys_lstat").return ?,
+	kprobe.function("sys_newlstat").return ?,
+	kprobe.function("compat_sys_newlstat").return ?,
+	kprobe.function("sys32_lstat64").return ?,
+	kprobe.function("sys_lstat64").return ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_lstat64").return ?,
+%)
+%( arch == "x86_64" %?
+	kprobe.function("compat_sys_x86_lstat64").return ?,
+%)
+	kprobe.function("sys_oabi_lstat64").return ?
+{
+	@_SYSCALL_LSTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lstat.return =
+	kprobe.function(@arch_syscall_prefix "sys_lstat").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_newlstat").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_newlstat").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_lstat64").return ?
+{
+	@_SYSCALL_LSTAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lstat.return = __tp_syscall.lstat.return,
+                                __tp_syscall.lstat64.return,
+                                __tp_syscall.newlstat.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_LSTAT_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.lstat.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_oldlstat"), @const("__NR_compat_oldlstat"))
+}
+probe __tp_syscall.lstat64.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_lstat64"), @const("__NR_compat_lstat64"))
+}
+probe __tp_syscall.newlstat.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_lstat"), @const("__NR_compat_lstat"))
+}

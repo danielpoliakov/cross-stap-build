@@ -1,0 +1,140 @@
+# rt_sigpending ______________________________________________
+#
+# long sys_rt_sigpending(sigset_t __user *set, size_t sigsetsize)
+# COMPAT_SYSCALL_DEFINE2(rt_sigpending, compat_sigset_t __user *, uset,
+#		compat_size_t, sigsetsize)
+# asmlinkage long sys32_rt_sigpending(compat_sigset_t __user *set,
+#				    compat_size_t sigsetsize)
+#
+
+@define _SYSCALL_RT_SIGPENDING_NAME
+%(
+	name = "rt_sigpending"
+%)
+
+@define _SYSCALL_RT_SIGPENDING_ARGSTR
+%(
+	argstr = sprintf("%p, %u", set_uaddr, sigsetsize)
+%)
+
+@define _SYSCALL_RT_SIGPENDING_REGARGS
+%(
+	set_uaddr = pointer_arg(1)
+	sigsetsize = ulong_arg(2)
+%)
+
+probe syscall.rt_sigpending = dw_syscall.rt_sigpending !,
+                              nd_syscall.rt_sigpending ? {}
+probe syscall.rt_sigpending.return = dw_syscall.rt_sigpending.return !,
+                                     nd_syscall.rt_sigpending.return ? {}
+
+# dw_rt_sigpending _____________________________________________________
+
+probe dw_syscall.rt_sigpending = __syscall.rt_sigpending ?,
+                              kernel.function("compat_sys_rt_sigpending").call !,
+                              kernel.function("sys32_rt_sigpending").call ?
+{
+	@_SYSCALL_RT_SIGPENDING_NAME
+	set_uaddr = @choose_defined($uset, $set)
+	sigsetsize = @__compat_ulong($sigsetsize)
+	@_SYSCALL_RT_SIGPENDING_ARGSTR
+}
+probe __syscall.rt_sigpending = kernel.function("sys_rt_sigpending").call ?
+{
+	@__syscall_gate(@const("__NR_rt_sigpending"))
+}
+probe dw_syscall.rt_sigpending.return = __syscall.rt_sigpending.return ?,
+                                     kernel.function("compat_sys_rt_sigpending").return !,
+                                     kernel.function("sys32_rt_sigpending").return ?
+{
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.rt_sigpending.return =
+	kernel.function("sys_rt_sigpending").return ?
+{
+	@__syscall_gate(@const("__NR_rt_sigpending"))
+}
+
+# nd_rt_sigpending _____________________________________________________
+
+probe nd_syscall.rt_sigpending = nd1_syscall.rt_sigpending!, nd2_syscall.rt_sigpending!, tp_syscall.rt_sigpending
+  { }
+
+probe nd1_syscall.rt_sigpending = __nd1_syscall.rt_sigpending ?,
+				  __nd1_syscall.compat_rt_sigpending ?
+{
+	@_SYSCALL_RT_SIGPENDING_NAME
+	asmlinkage()
+	@_SYSCALL_RT_SIGPENDING_REGARGS
+	@_SYSCALL_RT_SIGPENDING_ARGSTR
+}
+probe __nd1_syscall.rt_sigpending = kprobe.function("sys_rt_sigpending") ?
+{
+	@__syscall_gate(@const("__NR_rt_sigpending"))
+}
+probe __nd1_syscall.compat_rt_sigpending =
+	kprobe.function("compat_sys_rt_sigpending") !,
+	kprobe.function("sys32_rt_sigpending") ?
+{
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigpending =
+	kprobe.function(@arch_syscall_prefix "sys_rt_sigpending") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_sigpending") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@_SYSCALL_RT_SIGPENDING_REGARGS
+	@_SYSCALL_RT_SIGPENDING_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigpending = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_rt_sigpending"), @const("__NR_compat_rt_sigpending"))
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@_SYSCALL_RT_SIGPENDING_REGARGS
+	@_SYSCALL_RT_SIGPENDING_ARGSTR
+}
+
+probe nd_syscall.rt_sigpending.return = nd1_syscall.rt_sigpending.return!, nd2_syscall.rt_sigpending.return!, tp_syscall.rt_sigpending.return
+  { }
+  
+probe nd1_syscall.rt_sigpending.return =
+	__nd1_syscall.rt_sigpending.return ?,
+	__nd1_syscall.compat_rt_sigpending.return ?
+{
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.rt_sigpending.return =
+	kprobe.function("sys_rt_sigpending").return ?
+{
+	@__syscall_gate(@const("__NR_rt_sigpending"))
+}
+probe __nd1_syscall.compat_rt_sigpending.return =
+	kprobe.function("compat_sys_rt_sigpending").return !,
+	kprobe.function("sys32_rt_sigpending").return ?
+{
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_sigpending.return =
+	kprobe.function(@arch_syscall_prefix "sys_rt_sigpending").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_sigpending").return ?
+{
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_sigpending.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_rt_sigpending"), @const("__NR_compat_rt_sigpending"))
+	@_SYSCALL_RT_SIGPENDING_NAME
+	@SYSC_RETVALSTR($ret)
+}

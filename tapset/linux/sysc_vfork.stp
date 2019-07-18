@@ -1,0 +1,82 @@
+# vfork _______________________________________________________
+#
+# SYSCALL_DEFINE0(vfork)
+#
+
+@define _SYSCALL_VFORK_NAME
+%(
+	name = "vfork"
+%)
+
+@define _SYSCALL_VFORK_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.vfork = dw_syscall.vfork !, nd_syscall.vfork ? {}
+probe syscall.vfork.return = dw_syscall.vfork.return !,
+                             nd_syscall.vfork.return ? {}
+
+# dw_vfork _____________________________________________________
+
+probe dw_syscall.vfork = kernel.function("sys_vfork").call ?
+{
+	@_SYSCALL_VFORK_NAME
+	@_SYSCALL_VFORK_ARGSTR
+}
+probe dw_syscall.vfork.return = kernel.function("sys_vfork").return ?
+{
+	@_SYSCALL_VFORK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_vfork _____________________________________________________
+
+probe nd_syscall.vfork = nd1_syscall.vfork!, nd2_syscall.vfork!, tp_syscall.vfork
+  { }
+
+probe nd1_syscall.vfork = kprobe.function("sys_vfork").call ?
+{
+	@_SYSCALL_VFORK_NAME
+	@_SYSCALL_VFORK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.vfork = kprobe.function(@arch_syscall0_prefix "sys_vfork") ?
+{
+	@_SYSCALL_VFORK_NAME
+	@_SYSCALL_VFORK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.vfork = kernel.trace("sys_enter") ?
+{
+	@__syscall_compat_gate(@const("__NR_vfork"), @const("__NR_compat_vfork"))
+	@_SYSCALL_VFORK_NAME
+	@_SYSCALL_VFORK_ARGSTR
+}
+
+probe nd_syscall.vfork.return = nd1_syscall.vfork.return!, nd2_syscall.vfork.return!, tp_syscall.vfork.return
+  { }
+
+probe nd1_syscall.vfork.return = kprobe.function("sys_vfork").return ?
+{
+	@_SYSCALL_VFORK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.vfork.return = kprobe.function(@arch_syscall0_prefix "sys_vfork").return ?
+{
+	@_SYSCALL_VFORK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.vfork.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_vfork"), @const("__NR_compat_vfork"))
+	@_SYSCALL_VFORK_NAME
+	@SYSC_RETVALSTR($ret)
+}

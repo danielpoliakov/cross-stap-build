@@ -1,0 +1,95 @@
+# access _____________________________________________________
+# long sys_access(const char __user * filename, int mode)
+
+@define _SYSCALL_ACCESS_NAME
+%(
+	name = "access"
+%)
+
+@define _SYSCALL_ACCESS_ARGSTR
+%(
+	argstr = sprintf("%s, %s", pathname, mode_str)
+%)
+
+@define _SYSCALL_ACCESS_REGARGS
+%(
+	pathname = user_string_quoted(pointer_arg(1))
+	mode = int_arg(2)
+	mode_str = _access_mode_str(mode)
+%)
+
+probe syscall.access = dw_syscall.access !, nd_syscall.access ? {}
+probe syscall.access.return = dw_syscall.access.return !, nd_syscall.access.return ? {}
+
+# dw_access _____________________________________________________
+
+probe dw_syscall.access = kernel.function("sys_access").call
+{
+	@_SYSCALL_ACCESS_NAME
+	pathname = user_string_quoted($filename)
+	mode = __int32($mode)
+	mode_str = _access_mode_str(__int32($mode))
+	@_SYSCALL_ACCESS_ARGSTR
+}
+probe dw_syscall.access.return = kernel.function("sys_access").return
+{
+	@_SYSCALL_ACCESS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_access _____________________________________________________
+
+probe nd_syscall.access = nd1_syscall.access!, nd2_syscall.access!, tp_syscall.access
+  { }
+
+probe nd1_syscall.access = kprobe.function("sys_access") ?
+{
+	@_SYSCALL_ACCESS_NAME
+	asmlinkage()
+	@_SYSCALL_ACCESS_REGARGS
+	@_SYSCALL_ACCESS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.access = kprobe.function(@arch_syscall_prefix "sys_access") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_ACCESS_NAME
+	@_SYSCALL_ACCESS_REGARGS
+	@_SYSCALL_ACCESS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.access = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_access"), @const("__NR_compat_access"))
+	@_SYSCALL_ACCESS_NAME
+	@_SYSCALL_ACCESS_REGARGS
+	@_SYSCALL_ACCESS_ARGSTR
+}
+
+probe nd_syscall.access.return = nd1_syscall.access.return!, nd2_syscall.access.return!, tp_syscall.access.return
+  { }
+
+probe nd1_syscall.access.return = kprobe.function("sys_access").return ?
+{
+	@_SYSCALL_ACCESS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.access.return = kprobe.function(@arch_syscall_prefix "sys_access").return ?
+{
+	@_SYSCALL_ACCESS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.access.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_access"), @const("__NR_compat_access"))
+	@_SYSCALL_ACCESS_NAME
+	@SYSC_RETVALSTR($ret)
+}

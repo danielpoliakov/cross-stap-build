@@ -1,0 +1,80 @@
+# getppid ____________________________________________________
+# long sys_getppid(void)
+
+@define _SYSCALL_GETPPID_NAME
+%(
+	name = "getppid"
+%)
+
+@define _SYSCALL_GETPPID_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.getppid = dw_syscall.getppid !, nd_syscall.getppid ? {}
+probe syscall.getppid.return = dw_syscall.getppid.return !,
+                               nd_syscall.getppid.return ? {}
+
+# dw_getppid _____________________________________________________
+
+probe dw_syscall.getppid = kernel.function("sys_getppid").call
+{
+	@_SYSCALL_GETPPID_NAME
+	@_SYSCALL_GETPPID_ARGSTR
+}
+probe dw_syscall.getppid.return = kernel.function("sys_getppid").return
+{
+	@_SYSCALL_GETPPID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getppid _____________________________________________________
+
+probe nd_syscall.getppid = nd1_syscall.getppid!, nd2_syscall.getppid!, tp_syscall.getppid
+  { }
+
+probe nd1_syscall.getppid = kprobe.function("sys_getppid")
+{
+	@_SYSCALL_GETPPID_NAME
+	@_SYSCALL_GETPPID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getppid = kprobe.function(@arch_syscall0_prefix "sys_getppid") ?
+{
+	@_SYSCALL_GETPPID_NAME
+	@_SYSCALL_GETPPID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getppid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getppid"), @const("__NR_compat_getppid"))
+	@_SYSCALL_GETPPID_NAME
+	@_SYSCALL_GETPPID_ARGSTR
+}
+
+probe nd_syscall.getppid.return = nd1_syscall.getppid.return!, nd2_syscall.getppid.return!, tp_syscall.getppid.return
+  { }
+  
+probe nd1_syscall.getppid.return = kprobe.function("sys_getppid").return
+{
+	@_SYSCALL_GETPPID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getppid.return = kprobe.function(@arch_syscall0_prefix "sys_getppid").return ?
+{
+	@_SYSCALL_GETPPID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getppid.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getppid"), @const("__NR_compat_getppid"))
+	@_SYSCALL_GETPPID_NAME
+	@SYSC_RETVALSTR($ret)
+}

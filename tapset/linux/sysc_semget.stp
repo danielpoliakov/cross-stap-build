@@ -1,0 +1,153 @@
+# semget _____________________________________________________
+# long sys_semget (key_t key, int nsems, int semflg)
+#
+
+@define _SYSCALL_SEMGET_NAME
+%(
+	name = "semget"
+%)
+
+@define _SYSCALL_SEMGET_ARGSTR
+%(
+	argstr = sprintf("%s, %d, %s", key_str, nsems, semflg_str)
+%)
+
+@define _SYSCALL_SEMGET_REGARGS
+%(
+	key = int_arg(1)
+	key_str = _stp_msgget_key_str(key)
+	nsems = int_arg(2)
+	semflg = int_arg(3)
+	semflg_str = __sem_flags(semflg)
+%)
+
+@define _SYSCALL_IPC_SEMGET_REGARGS
+%(
+	key = int_arg(2)
+	key_str = _stp_msgget_key_str(key)
+	nsems = int_arg(3)
+	semflg = int_arg(4)
+	semflg_str = __sem_flags(semflg)
+%)
+
+probe syscall.semget = dw_syscall.semget !, nd_syscall.semget ? {}
+probe syscall.semget.return = dw_syscall.semget.return !,
+                              nd_syscall.semget.return ? {}
+
+# dw_semget _____________________________________________________
+
+probe dw_syscall.semget = kernel.function("sys_semget").call ?
+{
+	@_SYSCALL_SEMGET_NAME
+	key = __int32($key)
+	key_str = _stp_msgget_key_str(__int32($key))
+	nsems = __int32($nsems)
+	semflg = __int32($semflg)
+	semflg_str = __sem_flags(__int32($semflg))
+	@_SYSCALL_SEMGET_ARGSTR
+}
+probe dw_syscall.semget.return = kernel.function("sys_semget").return ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_semget _____________________________________________________
+
+probe nd_syscall.semget = nd1_syscall.semget!, nd2_syscall.semget!, tp_syscall.semget
+  { }
+
+probe nd1_syscall.semget = kprobe.function("sys_semget") ?
+{
+	@_SYSCALL_SEMGET_NAME
+	asmlinkage()
+	@_SYSCALL_SEMGET_REGARGS
+	@_SYSCALL_SEMGET_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.semget =
+	__nd2_syscall.semget ?,
+	__nd2_syscall.compat_ipc.semget ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@_SYSCALL_SEMGET_ARGSTR
+}
+probe __nd2_syscall.semget =
+	kprobe.function(@arch_syscall_prefix "sys_semget") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SEMGET_REGARGS
+}
+probe __nd2_syscall.compat_ipc.semget =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SEMGET")) next;
+	@_SYSCALL_IPC_SEMGET_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.semget =
+	__tp_syscall.semget ?,
+	__tp_syscall.compat_ipc.semget ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@_SYSCALL_SEMGET_ARGSTR
+}
+probe __tp_syscall.semget = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_semget"))
+	@_SYSCALL_SEMGET_REGARGS
+}
+probe __tp_syscall.compat_ipc.semget = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SEMGET")) next;
+	@_SYSCALL_IPC_SEMGET_REGARGS
+}
+
+probe nd_syscall.semget.return = nd1_syscall.semget.return!, nd2_syscall.semget.return!, tp_syscall.semget.return
+  { }
+  
+probe nd1_syscall.semget.return = kprobe.function("sys_semget").return ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.semget.return =
+	kprobe.function(@arch_syscall_prefix "sys_semget").return ?,
+	__nd2_syscall.compat_ipc.semget.return ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.compat_ipc.semget.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SEMGET")) next;
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.semget.return =
+	__tp_syscall.semget.return ?,
+	__tp_syscall.compat_ipc.semget.return ?
+{
+	@_SYSCALL_SEMGET_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.semget.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_semget"))
+}
+probe __tp_syscall.compat_ipc.semget.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SEMGET")) next;
+}

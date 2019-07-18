@@ -1,0 +1,147 @@
+# shmget _____________________________________________________
+#
+# long sys_shmget (key_t key,
+#		 size_t size,
+#		 int shmflg)
+#
+
+@define _SYSCALL_SHMGET_NAME
+%(
+	name = "shmget"
+%)
+
+@define _SYSCALL_SHMGET_ARGSTR
+%(
+	argstr = sprintf("%d, %u, %s", key, size, shmflg_str)
+%)
+
+@define _SYSCALL_SHMGET_REGARGS
+%(
+	key = int_arg(1)
+	size = ulong_arg(2)
+	shmflg = int_arg(3)
+	shmflg_str = _stp_shmget_flags_str(shmflg)
+%)
+
+@define _SYSCALL_IPC_SHMGET_REGARGS
+%(
+	key = int_arg(2)
+	size = ulong_arg(3)
+	shmflg = int_arg(4)
+	shmflg_str = _stp_shmget_flags_str(shmflg)
+%)
+
+probe syscall.shmget = dw_syscall.shmget !, nd_syscall.shmget ? {}
+probe syscall.shmget.return = dw_syscall.shmget.return !,
+                              nd_syscall.shmget.return ? {}
+
+# dw_shmget _____________________________________________________
+
+probe dw_syscall.shmget = kernel.function("sys_shmget").call ?
+{
+	@_SYSCALL_SHMGET_NAME
+	key = __int32($key)
+	size = __ulong($size)
+	shmflg = __int32($shmflg)
+	shmflg_str = _stp_shmget_flags_str(__int32($shmflg))
+	@_SYSCALL_SHMGET_ARGSTR
+}
+probe dw_syscall.shmget.return = kernel.function("sys_shmget").return ?
+{
+	@_SYSCALL_SHMGET_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_shmget _____________________________________________________
+
+probe nd_syscall.shmget = nd1_syscall.shmget!, nd2_syscall.shmget!, tp_syscall.shmget
+  { }
+
+probe nd1_syscall.shmget = kprobe.function("sys_shmget") ?
+{
+	@_SYSCALL_SHMGET_NAME
+	asmlinkage()
+	@_SYSCALL_SHMGET_REGARGS
+	@_SYSCALL_SHMGET_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmget = __nd2_syscall.shmget ?, __nd2_syscall.compat_ipc.shmget ?
+{
+	@_SYSCALL_SHMGET_NAME
+	@_SYSCALL_SHMGET_ARGSTR
+}
+probe __nd2_syscall.shmget = kprobe.function(@arch_syscall_prefix "sys_shmget") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SHMGET_REGARGS
+}
+probe __nd2_syscall.compat_ipc.shmget =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SHMGET")) next;
+	@_SYSCALL_IPC_SHMGET_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmget = __tp_syscall.shmget, __tp_syscall.compat_ipc.shmget
+{
+	@_SYSCALL_SHMGET_NAME
+	@_SYSCALL_SHMGET_ARGSTR
+}
+probe __tp_syscall.shmget = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_shmget"))
+	@_SYSCALL_SHMGET_REGARGS
+}
+probe __tp_syscall.compat_ipc.shmget = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMGET")) next;
+	@_SYSCALL_IPC_SHMGET_REGARGS
+}
+
+probe nd_syscall.shmget.return = nd1_syscall.shmget.return!, nd2_syscall.shmget.return!, tp_syscall.shmget.return
+  { }
+  
+probe nd1_syscall.shmget.return = kprobe.function("sys_shmget").return ?
+{
+	@_SYSCALL_SHMGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmget.return =
+	kprobe.function(@arch_syscall_prefix "sys_shmget").return ?,
+	__nd2_syscall.compat_ipc.shmget.return ?
+{
+	@_SYSCALL_SHMGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.compat_ipc.shmget.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SHMGET")) next;
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmget.return = __tp_syscall.shmget.return,
+	__tp_syscall.compat_ipc.shmget.return
+{
+	@_SYSCALL_SHMGET_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.shmget.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_shmget"))
+}
+probe __tp_syscall.compat_ipc.shmget.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMGET")) next;
+}

@@ -1,0 +1,145 @@
+# sendfile ___________________________________________________
+#
+# ssize_t sys_sendfile[64](int out_fd,
+#		  int in_fd,
+#		  off_t __user *offset,
+#		  size_t count)
+# SYSCALL_DEFINE4(sendfile64, int, out_fd, int, in_fd, loff_t __user *, offset,
+#		 size_t, count)
+# COMPAT_SYSCALL_DEFINE4(sendfile, int, out_fd, int, in_fd,
+#		compat_off_t __user *, offset, compat_size_t, count)
+# COMPAT_SYSCALL_DEFINE4(sendfile64, int, out_fd, int, in_fd,
+#		compat_loff_t __user *, offset, compat_size_t, count)
+#
+
+@define _SYSCALL_SENDFILE_NAME
+%(
+	name = "sendfile"
+%)
+
+@define _SYSCALL_SENDFILE_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %p, %u", out_fd, in_fd, offset_uaddr, count)
+%)
+
+@define _SYSCALL_SENDFILE_REGARGS
+%(
+	out_fd = int_arg(1)
+	in_fd = int_arg(2)
+	offset_uaddr = pointer_arg(3)
+	count = ulong_arg(4)
+%)
+
+probe syscall.sendfile = dw_syscall.sendfile !, nd_syscall.sendfile ? {}
+probe syscall.sendfile.return = dw_syscall.sendfile.return !,
+                                nd_syscall.sendfile.return ? {}
+
+# dw_sendfile _____________________________________________________
+
+probe dw_syscall.sendfile = __syscall.sendfile ?,
+	kernel.function("compat_sys_sendfile").call ?,
+	kernel.function("compat_sys_sendfile64").call ?,
+	kernel.function("sys32_sendfile").call ?
+{
+	@_SYSCALL_SENDFILE_NAME
+	out_fd = __int32($out_fd)
+	in_fd = __int32($in_fd)
+	offset_uaddr = $offset
+	count = @__compat_ulong($count)
+	@_SYSCALL_SENDFILE_ARGSTR
+}
+probe __syscall.sendfile = kernel.function("sys_sendfile").call ?,
+	kernel.function("sys_sendfile64").call ?
+{
+	@__syscall_gate2(@const("__NR_sendfile"), @const("__NR_sendfile64"))
+}
+probe dw_syscall.sendfile.return = __syscall.sendfile.return ?,
+	kernel.function("compat_sys_sendfile").return ?,
+	kernel.function("compat_sys_sendfile64").return ?,
+	kernel.function("sys32_sendfile").return ?
+{
+	@_SYSCALL_SENDFILE_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.sendfile.return = kernel.function("sys_sendfile").return ?,
+	kernel.function("sys_sendfile64").return ?
+{
+	@__syscall_gate2(@const("__NR_sendfile"), @const("__NR_sendfile64"))
+}
+
+# nd_sendfile _____________________________________________________
+
+probe nd_syscall.sendfile = nd1_syscall.sendfile!, nd2_syscall.sendfile!, tp_syscall.sendfile
+  { }
+
+probe nd1_syscall.sendfile = __nd1_syscall.sendfile ?,
+	kprobe.function("compat_sys_sendfile").call ?,
+	kprobe.function("compat_sys_sendfile64").call ?,
+	kprobe.function("sys32_sendfile").call ?
+{
+	@_SYSCALL_SENDFILE_NAME
+	asmlinkage()
+	@_SYSCALL_SENDFILE_REGARGS
+	@_SYSCALL_SENDFILE_ARGSTR
+}
+probe __nd1_syscall.sendfile = kprobe.function("sys_sendfile").call ?,
+	kprobe.function("sys_sendfile64").call ?
+{
+	@__syscall_gate2(@const("__NR_sendfile"), @const("__NR_sendfile64"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sendfile =
+	kprobe.function(@arch_syscall_prefix "sys_sendfile64") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sendfile") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SENDFILE_NAME
+	@_SYSCALL_SENDFILE_REGARGS
+	@_SYSCALL_SENDFILE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sendfile = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sendfile"), @const("__NR_compat_sendfile"))
+	@_SYSCALL_SENDFILE_NAME
+	@_SYSCALL_SENDFILE_REGARGS
+	@_SYSCALL_SENDFILE_ARGSTR
+}
+
+probe nd_syscall.sendfile.return = nd1_syscall.sendfile.return!, nd2_syscall.sendfile.return!, tp_syscall.sendfile.return
+  { }
+  
+probe nd1_syscall.sendfile.return = __nd1_syscall.sendfile.return ?,
+	kprobe.function("compat_sys_sendfile").return ?,
+	kprobe.function("compat_sys_sendfile64").return ?,
+	kprobe.function("sys32_sendfile").return ?
+{
+	@_SYSCALL_SENDFILE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.sendfile.return = kprobe.function("sys_sendfile").return ?,
+	kprobe.function("sys_sendfile64").return ?
+{
+	@__syscall_gate2(@const("__NR_sendfile"), @const("__NR_sendfile64"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sendfile.return =
+	kprobe.function(@arch_syscall_prefix "sys_sendfile64").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sendfile").return ?
+{
+	@_SYSCALL_SENDFILE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sendfile.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sendfile"), @const("__NR_compat_sendfile"))
+	@_SYSCALL_SENDFILE_NAME
+	@SYSC_RETVALSTR($ret)
+}

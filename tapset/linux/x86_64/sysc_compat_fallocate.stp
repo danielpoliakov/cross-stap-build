@@ -1,0 +1,115 @@
+# fallocate __________________________________________________
+#
+# COMPAT_SYSCALL_DEFINE6(x86_fallocate, int, fd, int, mode,
+#		       unsigned int, offset_lo, unsigned int, offset_hi,
+#		       unsigned int, len_lo, unsigned int, len_hi)
+# asmlinkage long sys32_fallocate(int fd, int mode, unsigned offset_lo,
+#				unsigned offset_hi, unsigned len_lo,
+#				unsigned len_hi)
+
+@define _SYSCALL_COMPAT_FALLOCATE_NAME
+%(
+	name = "fallocate"
+%)
+
+@define _SYSCALL_COMPAT_FALLOCATE_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %#x, %u", fd, mode_str, offset, len)
+%)
+
+@define _SYSCALL_COMPAT_FALLOCATE_REGARGS
+%(
+	fd = int_arg(1)
+	mode = int_arg(2)
+	mode_str = _stp_fallocate_mode_str(mode)
+	offset = ((uint_arg(4) << 32) | uint_arg(3))
+	len = ((uint_arg(6) << 32) | uint_arg(5))
+%)
+
+probe syscall.compat_fallocate = dw_syscall.compat_fallocate !,
+                                 nd_syscall.compat_fallocate ? {}
+probe syscall.compat_fallocate.return = dw_syscall.compat_fallocate.return !,
+                                        nd_syscall.compat_fallocate.return ? {}
+
+# dw_compat_fallocate _____________________________________________________
+
+probe dw_syscall.compat_fallocate = kernel.function("sys32_fallocate").call ?,
+	kernel.function("comapt_sys_x86_fallocate").call ?
+{
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	fd = __int32($fd)
+	mode = __int32($mode)
+	mode_str = _stp_fallocate_mode_str(mode)
+	offset = (($offset_hi << 32) | $offset_lo)
+	len = (($len_hi << 32) | $len_lo)
+	@_SYSCALL_COMPAT_FALLOCATE_ARGSTR
+}
+probe dw_syscall.compat_fallocate.return =
+	kernel.function("sys32_fallocate").return ?,
+	kernel.function("compat_sys_x86_fallocate").return ?
+{
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_fallocate _____________________________________________________
+
+probe nd_syscall.compat_fallocate = nd1_syscall.compat_fallocate!, nd2_syscall.compat_fallocate!, tp_syscall.compat_fallocate
+  { }
+
+probe nd1_syscall.compat_fallocate = kprobe.function("sys32_fallocate") ?,
+	kprobe.function("compat_sys_x86_fallocate") ?
+{
+	asmlinkage()
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@_SYSCALL_COMPAT_FALLOCATE_REGARGS
+	@_SYSCALL_COMPAT_FALLOCATE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_fallocate = 
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_fallocate") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@_SYSCALL_COMPAT_FALLOCATE_REGARGS
+	@_SYSCALL_COMPAT_FALLOCATE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fallocate = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_fallocate"))
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@_SYSCALL_COMPAT_FALLOCATE_REGARGS
+	@_SYSCALL_COMPAT_FALLOCATE_ARGSTR
+}
+
+probe nd_syscall.compat_fallocate.return = nd1_syscall.compat_fallocate.return!, nd2_syscall.compat_fallocate.return!, tp_syscall.compat_fallocate.return
+  { }
+  
+probe nd1_syscall.compat_fallocate.return =
+	kprobe.function("sys32_fallocate").return ?,
+	kprobe.function("compat_sys_x86_fallocate").return ?
+{
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_fallocate.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_fallocate").return ?
+{
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fallocate.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_fallocate"))
+	@_SYSCALL_COMPAT_FALLOCATE_NAME
+	@SYSC_RETVALSTR($ret)
+}

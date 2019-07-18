@@ -1,0 +1,127 @@
+# set_robust_list ____________________________________________
+# SYSCALL_DEFINE2(set_robust_list, struct robust_list_head __user *, head,
+#                 size_t, len)
+# COMPAT_SYSCALL_DEFINE2(set_robust_list,
+#                        struct compat_robust_list_head __user *, head,
+#                        compat_size_t, len)
+
+@define _SYSCALL_SET_ROBUST_LIST_NAME
+%(
+	name = "set_robust_list"
+%)
+
+@define _SYSCALL_SET_ROBUST_LIST_ARGSTR
+%(
+	argstr = sprintf("%p, %u", list_head_uaddr, len)
+%)
+
+@define _SYSCALL_SET_ROBUST_LIST_REGARGS
+%(
+	list_head_uaddr = pointer_arg(1)
+	len = ulong_arg(2)
+%)
+
+probe syscall.set_robust_list = dw_syscall.set_robust_list !,
+                                nd_syscall.set_robust_list ? {}
+probe syscall.set_robust_list.return = dw_syscall.set_robust_list.return !,
+                                       nd_syscall.set_robust_list.return ? {}
+
+# dw_set_robust_list _____________________________________________________
+
+probe dw_syscall.set_robust_list = __syscall.set_robust_list ?,
+                                kernel.function("compat_sys_set_robust_list") ?
+{
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	list_head_uaddr = @__pointer($head)
+	len = @__compat_ulong($len)
+	@_SYSCALL_SET_ROBUST_LIST_ARGSTR
+}
+probe __syscall.set_robust_list = kernel.function("sys_set_robust_list")
+{
+	@__syscall_gate_compat_simple
+}
+probe dw_syscall.set_robust_list.return = __syscall.set_robust_list.return ?,
+		kernel.function("compat_sys_set_robust_list").return ?
+{
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.set_robust_list.return =
+		kernel.function("sys_set_robust_list").return
+{
+	@__syscall_gate_compat_simple
+}
+
+# nd_set_robust_list _____________________________________________________
+
+probe nd_syscall.set_robust_list = nd1_syscall.set_robust_list!, nd2_syscall.set_robust_list!, tp_syscall.set_robust_list
+  { }
+
+probe nd1_syscall.set_robust_list =
+		__nd1_syscall.set_robust_list ?,
+		kprobe.function("compat_sys_set_robust_list") ?
+{
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	asmlinkage()
+	@_SYSCALL_SET_ROBUST_LIST_REGARGS
+	@_SYSCALL_SET_ROBUST_LIST_ARGSTR
+}
+probe __nd1_syscall.set_robust_list = kprobe.function("sys_set_robust_list")
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.set_robust_list =
+	kprobe.function(@arch_syscall_prefix "sys_set_robust_list") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_set_robust_list") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@_SYSCALL_SET_ROBUST_LIST_REGARGS
+	@_SYSCALL_SET_ROBUST_LIST_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.set_robust_list = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_set_robust_list"), @const("__NR_compat_set_robust_list"))
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@_SYSCALL_SET_ROBUST_LIST_REGARGS
+	@_SYSCALL_SET_ROBUST_LIST_ARGSTR
+}
+
+probe nd_syscall.set_robust_list.return = nd1_syscall.set_robust_list.return!, nd2_syscall.set_robust_list.return!, tp_syscall.set_robust_list.return
+  { }
+  
+probe nd1_syscall.set_robust_list.return =
+		__nd1_syscall.set_robust_list.return ?,
+		kprobe.function("compat_sys_set_robust_list").return ?
+{
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.set_robust_list.return =
+		kprobe.function("sys_set_robust_list").return
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.set_robust_list.return =
+	kprobe.function(@arch_syscall_prefix "sys_set_robust_list").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_set_robust_list").return ?
+{
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.set_robust_list.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_set_robust_list"), @const("__NR_compat_set_robust_list"))
+	@_SYSCALL_SET_ROBUST_LIST_NAME
+	@SYSC_RETVALSTR($ret)
+}

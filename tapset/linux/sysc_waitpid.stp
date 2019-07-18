@@ -1,0 +1,109 @@
+# waitpid ____________________________________________________
+#
+# (waitpid is usually implemented via wait4 but not always)
+# SYSCALL_DEFINE3(waitpid, pid_t, pid, int __user *, stat_addr, int, options)
+#
+
+@define _SYSCALL_WAITPID_NAME
+%(
+	name = "waitpid"
+%)
+
+@define _SYSCALL_WAITPID_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %s", pid, status_uaddr, options_str)
+%)
+
+@define _SYSCALL_WAITPID_REGARGS
+%(
+	pid = int_arg(1)
+	status_uaddr = pointer_arg(2)
+	options = int_arg(3)
+	options_str = _wait4_opt_str(options)
+%)
+
+probe syscall.waitpid = dw_syscall.waitpid !, nd_syscall.waitpid ? {}
+probe syscall.waitpid.return = dw_syscall.waitpid.return !,
+                               nd_syscall.waitpid.return ? {}
+
+# dw_waitpid _____________________________________________________
+
+probe dw_syscall.waitpid = kernel.function("sys_waitpid").call ?,
+	kernel.function("sys32_waitpid").call ?,
+	kernel.function("compat_sys_x86_waitpid").call ?
+{
+	@_SYSCALL_WAITPID_NAME
+	pid = __int32($pid)
+	status_uaddr = $stat_addr
+	options = __int32($options)
+	options_str = _wait4_opt_str(options)
+	@_SYSCALL_WAITPID_ARGSTR
+}
+probe dw_syscall.waitpid.return = kernel.function("sys_waitpid").return ?,
+	kernel.function("sys32_waitpid").return ?,
+	kernel.function("compat_sys_x86_waitpid").return ?
+{
+	@_SYSCALL_WAITPID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_waitpid _____________________________________________________
+
+probe nd_syscall.waitpid = nd1_syscall.waitpid!, nd2_syscall.waitpid!, tp_syscall.waitpid
+  { }
+
+probe nd1_syscall.waitpid = kprobe.function("sys_waitpid") ?,
+	kprobe.function("sys32_waitpid").call ?,
+	kprobe.function("compat_sys_x86_waitpid") ?
+{
+	@_SYSCALL_WAITPID_NAME
+	asmlinkage()
+	@_SYSCALL_WAITPID_REGARGS
+	@_SYSCALL_WAITPID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.waitpid = kprobe.function(@arch_syscall_prefix "sys_waitpid") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_WAITPID_NAME
+	@_SYSCALL_WAITPID_REGARGS
+	@_SYSCALL_WAITPID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.waitpid = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_waitpid"), @const("__NR_compat_waitpid"))
+	@_SYSCALL_WAITPID_NAME
+	@_SYSCALL_WAITPID_REGARGS
+	@_SYSCALL_WAITPID_ARGSTR
+}
+
+probe nd_syscall.waitpid.return = nd1_syscall.waitpid.return!, nd2_syscall.waitpid.return!, tp_syscall.waitpid.return
+  { }
+
+probe nd1_syscall.waitpid.return = kprobe.function("sys_waitpid").return ?,
+	kprobe.function("sys32_waitpid").return ?,
+	kprobe.function("compat_sys_x86_waitpid").return ?
+{
+	@_SYSCALL_WAITPID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.waitpid.return = kprobe.function(@arch_syscall_prefix "sys_waitpid").return ?
+{
+	@_SYSCALL_WAITPID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.waitpid.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_waitpid"), @const("__NR_compat_waitpid"))
+	@_SYSCALL_WAITPID_NAME
+	@SYSC_RETVALSTR($ret)
+}

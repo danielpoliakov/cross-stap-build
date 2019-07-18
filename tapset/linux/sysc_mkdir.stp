@@ -1,0 +1,95 @@
+# mkdir ______________________________________________________
+# long sys_mkdir(const char __user * pathname, int mode)
+
+@define _SYSCALL_MKDIR_NAME
+%(
+	name = "mkdir"
+%)
+
+@define _SYSCALL_MKDIR_ARGSTR
+%(
+	argstr = sprintf("%s, %#o", pathname, mode)
+%)
+
+@define _SYSCALL_MKDIR_REGARGS
+%(
+	pathname_uaddr = pointer_arg(1)
+	pathname = user_string_quoted(pathname_uaddr)
+	mode = uint_arg(2)
+%)
+
+probe syscall.mkdir = dw_syscall.mkdir !, nd_syscall.mkdir ? {}
+probe syscall.mkdir.return = dw_syscall.mkdir.return !, nd_syscall.mkdir.return ? {}
+
+# dw_mkdir _____________________________________________________
+
+probe dw_syscall.mkdir = kernel.function("sys_mkdir").call
+{
+	@_SYSCALL_MKDIR_NAME
+	pathname_uaddr = $pathname
+	pathname = user_string_quoted($pathname)
+	mode = __uint32($mode)
+	@_SYSCALL_MKDIR_ARGSTR
+}
+probe dw_syscall.mkdir.return = kernel.function("sys_mkdir").return
+{
+	@_SYSCALL_MKDIR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mkdir _____________________________________________________
+
+probe nd_syscall.mkdir = nd1_syscall.mkdir!, nd2_syscall.mkdir!, tp_syscall.mkdir
+  { }
+
+probe nd1_syscall.mkdir = kprobe.function("sys_mkdir") ?
+{
+	@_SYSCALL_MKDIR_NAME
+	asmlinkage()
+	@_SYSCALL_MKDIR_REGARGS
+	@_SYSCALL_MKDIR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mkdir = kprobe.function(@arch_syscall_prefix "sys_mkdir")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MKDIR_NAME
+	@_SYSCALL_MKDIR_REGARGS
+	@_SYSCALL_MKDIR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mkdir = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mkdir"), @const("__NR_compat_mkdir"))
+	@_SYSCALL_MKDIR_NAME
+	@_SYSCALL_MKDIR_REGARGS
+	@_SYSCALL_MKDIR_ARGSTR
+}
+
+probe nd_syscall.mkdir.return = nd1_syscall.mkdir.return!, nd2_syscall.mkdir.return!, tp_syscall.mkdir.return
+  { }
+
+probe nd1_syscall.mkdir.return = kprobe.function("sys_mkdir").return ?
+{
+	@_SYSCALL_MKDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mkdir.return = kprobe.function(@arch_syscall_prefix "sys_mkdir").return
+{
+	@_SYSCALL_MKDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mkdir.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mkdir"), @const("__NR_compat_mkdir"))
+	@_SYSCALL_MKDIR_NAME
+	@SYSC_RETVALSTR($ret)
+}

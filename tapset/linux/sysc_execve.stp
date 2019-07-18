@@ -1,0 +1,210 @@
+# execve _____________________________________________________
+# NB: kprocess.exec[_complete] is aliased to syscall.execve[.return]
+%( kernel_v >= "3.7" %?
+# In kernels >= 3.7, sys_execve() has been moved to generic code, so we
+# can use it with confidence. For kernels < 3.7, execve support is in
+# arch-specific tapset code.
+#
+# SYSCALL_DEFINE3(execve,
+#		const char __user *, filename,
+#		const char __user *const __user *, argv,
+#		const char __user *const __user *, envp)
+
+@define _SYSCALL_EXECVE_NAME
+%(
+	name = "execve"
+%)
+
+@define _SYSCALL_EXECVE_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s", filename, args, env_str)
+%)
+
+@define _SYSCALL_EXECVE_REGARGS
+%(
+	filename = user_string_quoted(pointer_arg(1))
+	args = __get_argv(pointer_arg(2), 0)
+	env_str = __get_argv(pointer_arg(3), 0)
+%)
+
+@define _SYSCALL_COMPAT_EXECVE_REGARGS
+%(
+	filename = user_string_quoted(pointer_arg(1))
+	args = __get_compat_argv(pointer_arg(2), 0)
+	env_str = __get_compat_argv(pointer_arg(3), 0)
+%)
+
+probe syscall.execve = dw_syscall.execve !, nd_syscall.execve {}
+probe syscall.execve.return = dw_syscall.execve.return !,
+                              nd_syscall.execve.return {}
+
+probe syscall.compat_execve = dw_syscall.compat_execve !,
+                              nd_syscall.compat_execve ? {}
+probe syscall.compat_execve.return = dw_syscall.compat_execve.return !,
+                                     nd_syscall.compat_execve.return ? {}
+
+# dw_execve _____________________________________________________
+
+probe dw_syscall.execve = kernel.function("sys_execve").call
+{
+	@_SYSCALL_EXECVE_NAME
+	filename = user_string_quoted(@choose_defined($filename, $name))
+	# kernel 3.0 changed the pointer's name to __argv
+	__argv = @choose_defined($__argv, $argv)
+	args = __get_argv(__argv, 0)
+	__envp = @choose_defined($__envp, $envp)
+	env_str = __get_argv(__envp, 0)
+	@_SYSCALL_EXECVE_ARGSTR
+}
+probe dw_syscall.execve.return = kernel.function("sys_execve").return
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# In kernels >= 3.7, compat_sys_execve() has been moved to generic
+# code, so we can use it with confidence. For kernels < 3.7,
+# compat_execve support is in arch-specific tapset code.
+#
+# asmlinkage long compat_sys_execve(const char __user * filename,
+#	const compat_uptr_t __user * argv,
+#	const compat_uptr_t __user * envp)
+probe dw_syscall.compat_execve = kernel.function("compat_sys_execve").call ?
+{
+	@_SYSCALL_EXECVE_NAME
+	filename = user_string_quoted(@__pointer($filename))
+	# kernel 3.0 changed the pointer's name to __argv
+	__argv = @__pointer(@choose_defined($__argv, $argv))
+	args = __get_compat_argv(__argv, 0)
+	__envp = @__pointer(@choose_defined($__envp, $envp))
+	env_str = __get_compat_argv(__envp, 0)
+	@_SYSCALL_EXECVE_ARGSTR
+}
+probe dw_syscall.compat_execve.return =
+	kernel.function("compat_sys_execve").return ?
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_execve _____________________________________________________
+
+probe nd_syscall.execve = nd1_syscall.execve!, nd2_syscall.execve!, tp_syscall.execve
+  { }
+
+probe nd1_syscall.execve = kprobe.function("sys_execve")
+{
+	@_SYSCALL_EXECVE_NAME
+	asmlinkage()
+	@_SYSCALL_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.execve = kprobe.function(@arch_syscall_prefix "sys_execve") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_EXECVE_NAME
+	@_SYSCALL_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.execve = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_execve"))
+	@_SYSCALL_EXECVE_NAME
+	@_SYSCALL_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+probe nd_syscall.execve.return = nd1_syscall.execve.return!, nd2_syscall.execve.return!, tp_syscall.execve.return
+  { }
+  
+probe nd1_syscall.execve.return = kprobe.function("sys_execve").return
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.execve.return = kprobe.function(@arch_syscall_prefix "sys_execve").return ?
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.execve.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_execve"))
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# In kernels >= 3.7, compat_sys_execve() has been moved to generic
+# code, so we can use it with confidence. For kernels < 3.7,
+# compat_execve support is in arch-specific tapset code.
+#
+# asmlinkage long compat_sys_execve(const char __user * filename,
+#	const compat_uptr_t __user * argv,
+#	const compat_uptr_t __user * envp)
+
+probe nd_syscall.compat_execve = nd1_syscall.compat_execve!, nd2_syscall.compat_execve!, tp_syscall.compat_execve
+  { }
+
+probe nd1_syscall.compat_execve = kprobe.function("compat_sys_execve").call ?
+{
+	@_SYSCALL_EXECVE_NAME
+	asmlinkage()
+	@_SYSCALL_COMPAT_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_execve = kprobe.function(@arch_syscall_prefix "compat_sys_execve") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_EXECVE_NAME
+	@_SYSCALL_COMPAT_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_execve = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_execve"))
+	@_SYSCALL_EXECVE_NAME
+	@_SYSCALL_COMPAT_EXECVE_REGARGS
+	@_SYSCALL_EXECVE_ARGSTR
+}
+
+probe nd_syscall.compat_execve.return = nd1_syscall.compat_execve.return!, nd2_syscall.compat_execve.return!, tp_syscall.compat_execve.return
+  { }
+  
+probe nd1_syscall.compat_execve.return =
+	kprobe.function("compat_sys_execve").return ?
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_execve.return = kprobe.function(@arch_syscall_prefix "compat_sys_execve").return ?
+{
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_execve.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_execve"))
+	@_SYSCALL_EXECVE_NAME
+	@SYSC_RETVALSTR($ret)
+}
+%)

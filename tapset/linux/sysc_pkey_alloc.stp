@@ -1,0 +1,95 @@
+# pkey_alloc _______________________________________________________
+# long sys_pkey_alloc(unsigned long flags, unsigned long init_val)
+
+@define _SYSCALL_PKEY_ALLOC_NAME
+%(
+	name = "pkey_alloc"
+%)
+
+@define _SYSCALL_PKEY_ALLOC_ARGSTR
+%(
+	argstr = sprintf("%u, %s", flags, init_val_str)
+%)
+
+@define _SYSCALL_PKEY_ALLOC_REGARGS
+%(
+	flags = ulong_arg(1)
+	init_val = ulong_arg(2)
+	init_val_str = _pkey_alloc_init_val_str(init_val)
+%)
+
+probe syscall.pkey_alloc = dw_syscall.pkey_alloc !, nd_syscall.pkey_alloc ? {}
+probe syscall.pkey_alloc.return = dw_syscall.pkey_alloc.return !, nd_syscall.pkey_alloc.return ? {}
+
+# dw_pkey_alloc _____________________________________________________
+
+probe dw_syscall.pkey_alloc = kernel.function("sys_pkey_alloc").call
+{
+	@_SYSCALL_PKEY_ALLOC_NAME
+	flags = __ulong($flags)
+	init_val = __ulong($init_val)
+	init_val_str = _pkey_alloc_init_val_str(init_val)
+	@_SYSCALL_PKEY_ALLOC_ARGSTR
+}
+probe dw_syscall.pkey_alloc.return = kernel.function("sys_pkey_alloc").return
+{
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pkey_alloc _____________________________________________________
+
+probe nd_syscall.pkey_alloc = nd1_syscall.pkey_alloc!, nd2_syscall.pkey_alloc!, tp_syscall.pkey_alloc
+  { }
+
+probe nd1_syscall.pkey_alloc = kprobe.function("sys_pkey_alloc") ?
+{
+	@_SYSCALL_PKEY_ALLOC_NAME
+	asmlinkage()
+	@_SYSCALL_PKEY_ALLOC_REGARGS
+	@_SYSCALL_PKEY_ALLOC_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pkey_alloc = kprobe.function(@arch_syscall_prefix "sys_pkey_alloc") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@_SYSCALL_PKEY_ALLOC_REGARGS
+	@_SYSCALL_PKEY_ALLOC_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pkey_alloc = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pkey_alloc"), @const("__NR_compat_pkey_alloc"))
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@_SYSCALL_PKEY_ALLOC_REGARGS
+	@_SYSCALL_PKEY_ALLOC_ARGSTR
+}
+
+probe nd_syscall.pkey_alloc.return = nd1_syscall.pkey_alloc.return!, nd2_syscall.pkey_alloc.return!, tp_syscall.pkey_alloc.return
+  { }
+  
+probe nd1_syscall.pkey_alloc.return = kprobe.function("sys_pkey_alloc").return ?
+{
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pkey_alloc.return = kprobe.function(@arch_syscall_prefix "sys_pkey_alloc").return ?
+{
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pkey_alloc.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pkey_alloc"), @const("__NR_compat_pkey_alloc"))
+	@_SYSCALL_PKEY_ALLOC_NAME
+	@SYSC_RETVALSTR($ret)
+}

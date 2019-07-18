@@ -1,0 +1,182 @@
+# adjtimex ___________________________________________________
+# long sys_adjtimex(struct timex __user *txc_p)
+
+@define _SYSCALL_ADJTIMEX_NAME
+%(
+	name = "adjtimex"
+%)
+
+@define _SYSCALL_ADJTIMEX_ARGSTR
+%(
+	argstr = sprintf("%s", buf_str)
+%)
+
+@define _SYSCALL_ADJTIMEX_REGARGS
+%(
+	buf_uaddr = pointer_arg(1)
+%)
+
+probe syscall.adjtimex = dw_syscall.adjtimex !, nd_syscall.adjtimex ? {}
+probe syscall.adjtimex.return = dw_syscall.adjtimex.return !,
+                                nd_syscall.adjtimex.return ? {}
+
+probe syscall.compat_adjtimex = dw_syscall.compat_adjtimex !,
+                                nd_syscall.compat_adjtimex ? {}
+probe syscall.compat_adjtimex.return = dw_syscall.compat_adjtimex.return !,
+                                       nd_syscall.compat_adjtimex.return ? {}
+
+# dw_adjtimex _____________________________________________________
+
+probe dw_syscall.adjtimex = kernel.function("sys_adjtimex").call
+{
+	@_SYSCALL_ADJTIMEX_NAME
+	buf_uaddr = $txc_p
+	buf_str = _struct_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+probe dw_syscall.adjtimex.return = kernel.function("sys_adjtimex").return
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR($return)
+	retstr = _adjtimex_return_str(retval)
+}
+# long compat_sys_adjtimex(struct compat_timex __user *utp)
+probe dw_syscall.compat_adjtimex = kernel.function("compat_sys_adjtimex").call ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+	buf_uaddr = $utp
+	buf_str = _struct_compat_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+probe dw_syscall.compat_adjtimex.return = kernel.function("compat_sys_adjtimex").return ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR($return)
+	retstr = _adjtimex_return_str(retval)
+}
+
+# nd_adjtimex _____________________________________________________
+
+probe nd_syscall.adjtimex = nd1_syscall.adjtimex!, nd2_syscall.adjtimex!, tp_syscall.adjtimex
+  { }
+
+probe nd1_syscall.adjtimex = kprobe.function("sys_adjtimex") ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+	asmlinkage()
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.adjtimex = kprobe.function(@arch_syscall_prefix "sys_adjtimex") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_ADJTIMEX_NAME
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.adjtimex = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_adjtimex"))
+	@_SYSCALL_ADJTIMEX_NAME
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+probe nd_syscall.adjtimex.return = nd1_syscall.adjtimex.return!, nd2_syscall.adjtimex.return!, tp_syscall.adjtimex.return
+  { }
+
+probe nd1_syscall.adjtimex.return = kprobe.function("sys_adjtimex").return ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR(returnval())
+	retstr = _adjtimex_return_str(retval)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.adjtimex.return = kprobe.function(@arch_syscall_prefix "sys_adjtimex").return ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR(returnval())
+	retstr = _adjtimex_return_str(retval)
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.adjtimex.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_adjtimex"))
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR($ret)
+	retstr = _adjtimex_return_str(retval)
+}
+
+# long compat_sys_adjtimex(struct compat_timex __user *utp)
+
+probe nd_syscall.compat_adjtimex = nd1_syscall.compat_adjtimex!, nd2_syscall.compat_adjtimex!, tp_syscall.compat_adjtimex
+  { }
+
+probe nd1_syscall.compat_adjtimex = kprobe.function("compat_sys_adjtimex") ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+	asmlinkage()
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_compat_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_adjtimex = kprobe.function(@arch_syscall_prefix "compat_sys_adjtimex") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_ADJTIMEX_NAME
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_compat_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_adjtimex = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_adjtimex"))
+	@_SYSCALL_ADJTIMEX_NAME
+	@_SYSCALL_ADJTIMEX_REGARGS
+	buf_str = _struct_compat_timex_u(buf_uaddr)
+	@_SYSCALL_ADJTIMEX_ARGSTR
+}
+
+probe nd_syscall.compat_adjtimex.return = nd1_syscall.compat_adjtimex.return!, nd2_syscall.compat_adjtimex.return!, tp_syscall.compat_adjtimex.return
+  { }
+  
+probe nd1_syscall.compat_adjtimex.return = kprobe.function("compat_sys_adjtimex").return ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR(returnval())
+	retstr = _adjtimex_return_str(retval)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_adjtimex.return = kprobe.function(@arch_syscall_prefix "compat_sys_adjtimex").return ?
+{
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR(returnval())
+	retstr = _adjtimex_return_str(retval)
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_adjtimex.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_adjtimex"))
+	@_SYSCALL_ADJTIMEX_NAME
+        @SYSC_RETVALSTR($ret)
+	retstr = _adjtimex_return_str(retval)
+}

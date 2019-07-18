@@ -1,0 +1,95 @@
+# timer_getoverrun ___________________________________________
+#
+# long sys_timer_getoverrun(timer_t timer_id)
+#
+
+@define _SYSCALL_TIMER_GETOVERRUN_NAME
+%(
+	name = "timer_getoverrun"
+%)
+
+@define _SYSCALL_TIMER_GETOVERRUN_ARGSTR
+%(
+	argstr = sprint(timerid)
+%)
+
+@define _SYSCALL_TIMER_GETOVERRUN_REGARGS
+%(
+	timerid = int_arg(1)
+%)
+
+probe syscall.timer_getoverrun = dw_syscall.timer_getoverrun !,
+                                 nd_syscall.timer_getoverrun ? {}
+probe syscall.timer_getoverrun.return = dw_syscall.timer_getoverrun.return !,
+                                        nd_syscall.timer_getoverrun.return ? {}
+
+# dw_timer_getoverrun _____________________________________________________
+
+probe dw_syscall.timer_getoverrun = kernel.function("sys_timer_getoverrun").call
+{
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	timerid = __int32($timer_id)
+	@_SYSCALL_TIMER_GETOVERRUN_ARGSTR
+}
+probe dw_syscall.timer_getoverrun.return = kernel.function("sys_timer_getoverrun").return
+{
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_timer_getoverrun _____________________________________________________
+
+probe nd_syscall.timer_getoverrun = nd1_syscall.timer_getoverrun!, nd2_syscall.timer_getoverrun!, tp_syscall.timer_getoverrun
+  { }
+
+probe nd1_syscall.timer_getoverrun = kprobe.function("sys_timer_getoverrun") ?
+{
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	asmlinkage()
+	@_SYSCALL_TIMER_GETOVERRUN_REGARGS
+	@_SYSCALL_TIMER_GETOVERRUN_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.timer_getoverrun = kprobe.function(@arch_syscall_prefix "sys_timer_getoverrun") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@_SYSCALL_TIMER_GETOVERRUN_REGARGS
+	@_SYSCALL_TIMER_GETOVERRUN_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.timer_getoverrun = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_timer_getoverrun"), @const("__NR_compat_timer_getoverrun"))
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@_SYSCALL_TIMER_GETOVERRUN_REGARGS
+	@_SYSCALL_TIMER_GETOVERRUN_ARGSTR
+}
+
+probe nd_syscall.timer_getoverrun.return = nd1_syscall.timer_getoverrun.return!, nd2_syscall.timer_getoverrun.return!, tp_syscall.timer_getoverrun.return
+  { }
+
+probe nd1_syscall.timer_getoverrun.return = kprobe.function("sys_timer_getoverrun").return ?
+{
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.timer_getoverrun.return = kprobe.function(@arch_syscall_prefix "sys_timer_getoverrun").return ?
+{
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.timer_getoverrun.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_timer_getoverrun"), @const("__NR_compat_timer_getoverrun"))
+	@_SYSCALL_TIMER_GETOVERRUN_NAME
+	@SYSC_RETVALSTR($ret)
+}

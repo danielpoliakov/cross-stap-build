@@ -1,0 +1,122 @@
+# getresgid __________________________________________________
+# long sys_getresgid(gid_t __user *rgid,
+#                    gid_t __user *egid,
+#                    gid_t __user *sgid)
+# long sys_getresgid16(old_uid_t __user *rgid,
+#                 old_uid_t __user *egid,
+#                 old_uid_t __user *sgid)
+
+@define _SYSCALL_GETRESGID_NAME
+%(
+	name = "getresgid"
+%)
+
+@define _SYSCALL_GETRESGID_ARGSTR
+%(
+	argstr = sprintf("%p, %p, %p", rgid_uaddr, egid_uaddr, sgid_uaddr)
+%)
+
+@define _SYSCALL_GETRESGID_REGARGS
+%(
+	rgid_uaddr = pointer_arg(1)
+	egid_uaddr = pointer_arg(2)
+	sgid_uaddr = pointer_arg(3)
+%)
+
+probe syscall.getresgid = dw_syscall.getresgid !, nd_syscall.getresgid ? {}
+probe syscall.getresgid.return = dw_syscall.getresgid.return !,
+                                 nd_syscall.getresgid.return ? {}
+
+# dw_getresgid _____________________________________________________
+
+probe dw_syscall.getresgid = kernel.function("sys_getresgid16").call ?,
+                          kernel.function("sys_getresgid").call
+{
+	@_SYSCALL_GETRESGID_NAME
+	rgid_uaddr = @choose_defined($rgidp, $rgid)
+	egid_uaddr = @choose_defined($egidp, $egid)
+	sgid_uaddr = @choose_defined($sgidp, $sgid)
+	@_SYSCALL_GETRESGID_ARGSTR
+}
+probe dw_syscall.getresgid.return = kernel.function("sys_getresgid16").return ?,
+                                 kernel.function("sys_getresgid").return
+{
+	@_SYSCALL_GETRESGID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getresgid _____________________________________________________
+
+probe nd_syscall.getresgid = nd1_syscall.getresgid!, nd2_syscall.getresgid!, tp_syscall.getresgid
+  { }
+
+probe nd1_syscall.getresgid = kprobe.function("sys_getresgid16") ?,
+                              kprobe.function("sys_getresgid") ?
+{
+	@_SYSCALL_GETRESGID_NAME
+	asmlinkage()
+	@_SYSCALL_GETRESGID_REGARGS
+	@_SYSCALL_GETRESGID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getresgid = kprobe.function(@arch_syscall_prefix "sys_getresgid") ?,
+                              kprobe.function(@arch_syscall_prefix "sys_getresgid16") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETRESGID_NAME
+	@_SYSCALL_GETRESGID_REGARGS
+	@_SYSCALL_GETRESGID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getresgid = __tp_syscall.getresgid, __tp_syscall.getresgid16
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETRESGID_NAME
+	@_SYSCALL_GETRESGID_REGARGS
+	@_SYSCALL_GETRESGID_ARGSTR
+}
+probe __tp_syscall.getresgid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getresgid"), @const("__NR_compat_getresgid32"))
+}
+probe __tp_syscall.getresgid16 = kernel.trace("sys_enter")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getresgid"))
+}
+
+probe nd_syscall.getresgid.return = nd1_syscall.getresgid.return!, nd2_syscall.getresgid.return!, tp_syscall.getresgid.return
+  { }
+
+probe nd1_syscall.getresgid.return = kprobe.function("sys_getresgid16").return ?,
+                                     kprobe.function("sys_getresgid").return ?
+{
+	@_SYSCALL_GETRESGID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getresgid.return =
+	kprobe.function(@arch_syscall_prefix "sys_getresgid").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_getresgid16").return ?
+{
+	@_SYSCALL_GETRESGID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getresgid.return = __tp_syscall.getresgid.return, __tp_syscall.getresgid16.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETRESGID_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.getresgid.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_getresgid"), @const("__NR_compat_getresgid32"))
+}
+probe __tp_syscall.getresgid16.return = kernel.trace("sys_exit")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getresgid"))
+}

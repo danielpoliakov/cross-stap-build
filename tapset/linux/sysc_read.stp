@@ -1,0 +1,145 @@
+# read _______________________________________________________
+# ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
+
+@define _SYSCALL_READ_NAME
+%(
+	name = "read"
+%)
+
+@define _SYSCALL_READ_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %u", fd, buf_uaddr, count)
+%)
+
+
+@define _SYSCALL_READ_REGARGS
+%(
+	fd = int_arg(1)
+	buf_uaddr = pointer_arg(2)
+	count = ulong_arg(3)
+%)
+
+probe syscall.read = dw_syscall.read !, nd_syscall.read { }
+probe syscall.read.return = dw_syscall.read.return !, nd_syscall.read.return {}
+
+# dw_read _____________________________________________________
+
+probe dw_syscall.read =
+%( arch == "s390" %?
+	__syscall.read, kernel.function("sys32_read").call ?,
+	kernel.function("compat_sys_s390_read").call ?
+%:
+	__syscall.read
+%)
+{
+	@_SYSCALL_READ_NAME
+	fd = __int32($fd)
+	buf_uaddr = @__pointer($buf)
+	count = @__compat_ulong($count)
+	@_SYSCALL_READ_ARGSTR
+}
+probe __syscall.read = kernel.function("sys_read").call
+{
+%( arch == "s390" %?
+	@__syscall_gate(@const("__NR_read"))
+%)
+}
+probe dw_syscall.read.return =
+%( arch == "s390" %?
+	__syscall.read.return, kernel.function("sys32_read").return ?,
+	kernel.function("compat_sys_s390_read").return ?
+%:
+	__syscall.read.return
+%)
+{
+	@_SYSCALL_READ_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.read.return = kernel.function("sys_read").return
+{
+%( arch == "s390" %?
+	@__syscall_gate(@const("__NR_read"))
+%)
+}
+
+# nd_read _____________________________________________________
+
+probe nd_syscall.read = nd1_syscall.read!, nd2_syscall.read!, tp_syscall.read
+  { }
+
+probe nd1_syscall.read =  
+%( arch == "s390" %?
+	__nd1_syscall.read, kprobe.function("sys32_read") ?,
+	kprobe.function("compat_sys_s390_read") ?
+%:
+	__nd1_syscall.read
+%)
+{
+	@_SYSCALL_READ_NAME
+        asmlinkage()
+	@_SYSCALL_READ_REGARGS
+	@_SYSCALL_READ_ARGSTR
+}
+  
+probe __nd1_syscall.read = kprobe.function("sys_read")
+{
+%( arch == "s390" %?
+	@__syscall_gate(@const("__NR_read"))
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.read = kprobe.function(@arch_syscall_prefix "sys_read")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_READ_NAME
+	@_SYSCALL_READ_REGARGS
+	@_SYSCALL_READ_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.read = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_read"), @const("__NR_compat_read"))
+	@_SYSCALL_READ_NAME
+	@_SYSCALL_READ_REGARGS
+	@_SYSCALL_READ_ARGSTR
+}
+
+probe nd_syscall.read.return = nd1_syscall.read.return!, nd2_syscall.read.return!, tp_syscall.read.return
+  { }
+  
+probe nd1_syscall.read.return =
+%( arch == "s390" %?
+	__nd1_syscall.read.return, kprobe.function("sys32_read").return ?,
+	kprobe.function("compat_sys_s390_read").return ?
+%:
+	__nd1_syscall.read.return
+%)
+{
+	@_SYSCALL_READ_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.read.return = kprobe.function("sys_read").return
+{
+%( arch == "s390" %?
+	@__syscall_gate(@const("__NR_read"))
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.read.return = kprobe.function(@arch_syscall_prefix "sys_read").return
+{
+	@_SYSCALL_READ_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.read.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_read"), @const("__NR_compat_read"))
+	@_SYSCALL_READ_NAME
+	@SYSC_RETVALSTR($ret)
+}

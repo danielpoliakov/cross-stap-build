@@ -1,0 +1,112 @@
+# bdflush ____________________________________________________
+# long sys_bdflush(int func, long data)
+
+@define _SYSCALL_BDFLUSH_NAME
+%(
+	name = "bdflush"
+%)
+
+@define _SYSCALL_BDFLUSH_ARGSTR
+%(
+	argstr = sprintf("%d, %s", func, data_str)
+%)
+
+@define _SYSCALL_BDFLUSH_REGARGS
+%(
+	func = int_arg(1)
+	data = long_arg(2)
+%)
+
+probe syscall.bdflush = dw_syscall.bdflush !, nd_syscall.bdflush ? {}
+probe syscall.bdflush.return = dw_syscall.bdflush.return !, nd_syscall.bdflush.return ? {}
+
+# dw_bdflush _____________________________________________________
+
+probe dw_syscall.bdflush = kernel.function("sys_bdflush").call ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	func = $func
+	data = $data
+	if (($func >= 2) && ($func % 2 == 0))
+		data_str = sprintf("%p", $data)
+	else
+		data_str = sprintf("%d", $data)
+	@_SYSCALL_BDFLUSH_ARGSTR
+}
+probe dw_syscall.bdflush.return = kernel.function("sys_bdflush").return ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_bdflush _____________________________________________________
+
+
+probe nd_syscall.bdflush = nd1_syscall.bdflush!, nd2_syscall.bdflush!, tp_syscall.bdflush
+{
+}
+
+probe nd1_syscall.bdflush = kprobe.function("sys_bdflush") ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	asmlinkage()
+	@_SYSCALL_BDFLUSH_REGARGS
+	if ((func >= 2) && (func % 2 == 0))
+		data_str = sprintf("%p", data)
+	else
+		data_str = sprintf("%d", data)
+	@_SYSCALL_BDFLUSH_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.bdflush = kprobe.function(@arch_syscall_prefix "sys_bdflush") ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	asmlinkage()
+	@_SYSCALL_BDFLUSH_REGARGS
+	if ((func >= 2) && (func % 2 == 0))
+		data_str = sprintf("%p", data)
+	else
+		data_str = sprintf("%d", data)
+	@_SYSCALL_BDFLUSH_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.bdflush = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_bdflush"), @const("__NR_compat_bdflush"))
+	@_SYSCALL_BDFLUSH_NAME
+	@_SYSCALL_BDFLUSH_REGARGS
+	if ((func >= 2) && (func % 2 == 0))
+		data_str = sprintf("%p", data)
+	else
+		data_str = sprintf("%d", data)
+	@_SYSCALL_BDFLUSH_ARGSTR
+}
+
+probe nd_syscall.bdflush.return = nd1_syscall.bdflush.return!, nd2_syscall.bdflush.return!, tp_syscall.bdflush.return
+{
+}
+
+probe nd1_syscall.bdflush.return = kprobe.function("sys_bdflush").return ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.bdflush.return = kprobe.function(@arch_syscall_prefix "sys_bdflush").return ?
+{
+	@_SYSCALL_BDFLUSH_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.bdflush.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_bdflush"), @const("__NR_compat_bdflush"))
+	@_SYSCALL_BDFLUSH_NAME
+	@SYSC_RETVALSTR($ret)
+}

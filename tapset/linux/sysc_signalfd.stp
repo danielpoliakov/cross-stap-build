@@ -1,0 +1,394 @@
+# signalfd _____________________________________________________
+#
+# long sys_signalfd(int ufd, sigset_t __user *user_mask, size_t sizemask)
+# long sys_signalfd4(int ufd, sigset_t __user *user_mask, size_t sizemask,
+#		 int flags)
+# long compat_sys_signalfd(int ufd, const compat_sigset_t __user *sigmask,
+# 		 compat_size_t sigsetsize)
+# long compat_sys_signalfd4(int ufd, const compat_sigset_t __user *sigmask,
+#		 compat_size_t sigsetsize, int flags)
+#
+
+probe syscall.signalfd = dw_syscall.signalfd !, nd_syscall.signalfd ? {}
+probe syscall.signalfd.return = dw_syscall.signalfd.return !,
+                                nd_syscall.signalfd.return ? {}
+
+probe syscall.compat_signalfd = dw_syscall.compat_signalfd !,
+                                nd_syscall.compat_signalfd ? {}
+probe syscall.compat_signalfd.return = dw_syscall.compat_signalfd.return !,
+                                       nd_syscall.compat_signalfd.return ? {}
+
+# dw_signalfd _____________________________________________________
+
+probe dw_syscall.signalfd = __syscall.signalfd4 !, __syscall.signalfd ?
+{
+	flags = __int32(@choose_defined($flags, 0))
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", __int32($ufd), @__pointer($user_mask),
+				 $sizemask)
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", __int32($ufd), @__pointer($user_mask),
+		       	 	 $sizemask, _signalfd4_flags_str(flags))
+	}
+}
+probe __syscall.signalfd4 = kernel.function("sys_signalfd4").call
+{
+	@__syscall_gate(@const("__NR_signalfd4"))
+}
+probe __syscall.signalfd = kernel.function("sys_signalfd").call
+{
+	@__syscall_gate(@const("__NR_signalfd"))
+}
+probe dw_syscall.signalfd.return = __syscall.signalfd4.return !,
+				__syscall.signalfd.return ?
+{
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.signalfd4.return = kernel.function("sys_signalfd4").return
+{
+	@__syscall_gate(@const("__NR_signalfd4"))
+	flags = __int32(@entry($flags))
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+}
+probe __syscall.signalfd.return = kernel.function("sys_signalfd").return
+{
+	@__syscall_gate(@const("__NR_signalfd"))
+	flags = 0
+	name = "signalfd"
+}
+probe dw_syscall.compat_signalfd = kernel.function("compat_sys_signalfd4").call !,
+                                kernel.function("compat_sys_signalfd").call ?
+{
+	flags = __int32(@choose_defined($flags, 0))
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", __int32($ufd), @__pointer($sigmask),
+				 $sigsetsize)
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", __int32($ufd), @__pointer($sigmask),
+				 $sigsetsize, _signalfd4_flags_str(flags))
+	}
+}
+probe dw_syscall.compat_signalfd.return =
+		kernel.function("compat_sys_signalfd4").return !,
+		kernel.function("compat_sys_signalfd").return ?
+{
+	flags = __int32(@entry(@choose_defined($flags, 0)))
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_signalfd _____________________________________________________
+
+probe nd_syscall.signalfd = nd1_syscall.signalfd!, nd2_syscall.signalfd!, tp_syscall.signalfd
+  { }
+
+probe nd1_syscall.signalfd = __nd1_syscall.signalfd4 !,
+                             __nd1_syscall.signalfd ?
+{
+}
+probe __nd1_syscall.signalfd4 = kprobe.function("sys_signalfd4")
+{
+	@__syscall_gate(@const("__NR_signalfd4"))
+	asmlinkage()
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 ulong_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1), pointer_arg(2),
+		       	 	 ulong_arg(3), _signalfd4_flags_str(flags))
+	}
+}
+probe __nd1_syscall.signalfd = kprobe.function("sys_signalfd")
+{
+	@__syscall_gate(@const("__NR_signalfd"))
+	name = "signalfd"
+	asmlinkage()
+	flags = 0
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 ulong_arg(3))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.signalfd = __nd2_syscall.signalfd4 !,
+                             __nd2_syscall.signalfd ?
+{
+}
+probe __nd2_syscall.signalfd4 = kprobe.function(@arch_syscall_prefix "sys_signalfd4")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 ulong_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1), pointer_arg(2),
+				 ulong_arg(3), _signalfd4_flags_str(flags))
+	}
+}
+probe __nd2_syscall.signalfd = kprobe.function(@arch_syscall_prefix "sys_signalfd")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	name = "signalfd"
+	flags = 0
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 ulong_arg(3))
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.signalfd = __tp_syscall.signalfd4 !,
+                            __tp_syscall.signalfd ?
+{
+}
+probe __tp_syscall.signalfd4 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_signalfd4"))
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 ulong_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1), pointer_arg(2),
+				 ulong_arg(3), _signalfd4_flags_str(flags))
+	}
+}
+probe __tp_syscall.signalfd = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_signalfd"))
+	name = "signalfd"
+	flags = 0
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 ulong_arg(3))
+}
+
+probe nd_syscall.signalfd.return = nd1_syscall.signalfd.return!, nd2_syscall.signalfd.return!, tp_syscall.signalfd.return
+  { }
+
+probe nd1_syscall.signalfd.return = __nd1_syscall.signalfd4.return !,
+                                    __nd1_syscall.signalfd.return ?
+{
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.signalfd4.return = kprobe.function("sys_signalfd4").return
+{
+	@__syscall_gate(@const("__NR_signalfd4"))
+	flags = @entry(__asmlinkage_int_arg(4))
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+}
+probe __nd1_syscall.signalfd.return = kprobe.function("sys_signalfd").return
+{
+	@__syscall_gate(@const("__NR_signalfd"))
+	flags = 0
+	name = "signalfd"
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.signalfd.return = __nd2_syscall.signalfd4.return !,
+                                    __nd2_syscall.signalfd.return ?
+{
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.signalfd4.return = kprobe.function(@arch_syscall_prefix "sys_signalfd4").return
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	flags = int_arg(4)
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+}
+probe __nd2_syscall.signalfd.return = kprobe.function(@arch_syscall_prefix "sys_signalfd").return
+{
+	flags = 0
+	name = "signalfd"
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.signalfd.return = __tp_syscall.signalfd4.return !,
+                                   __tp_syscall.signalfd.return ?
+{
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.signalfd4.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_signalfd4"))
+	flags = int_arg(4)
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+}
+probe __tp_syscall.signalfd.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_signalfd4"))
+	flags = 0
+	name = "signalfd"
+}
+
+probe nd_syscall.compat_signalfd = nd1_syscall.compat_signalfd!, nd2_syscall.compat_signalfd!, tp_syscall.compat_signalfd
+  { }
+
+probe nd1_syscall.compat_signalfd = __nd1_syscall.compat_signalfd4 !,
+                                    __nd1_syscall.compat_signalfd ?
+{
+}
+probe __nd1_syscall.compat_signalfd4 = kprobe.function("compat_sys_signalfd4")
+{
+	asmlinkage()
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 u32_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1),
+				 pointer_arg(2), u32_arg(3),
+				 _signalfd4_flags_str(flags))
+	}
+}
+probe __nd1_syscall.compat_signalfd = kprobe.function("compat_sys_signalfd")
+{
+	asmlinkage()
+	flags = 0
+	name = "signalfd"
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 u32_arg(3))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_signalfd = __nd2_syscall.compat_signalfd4 !,
+                                    __nd2_syscall.compat_signalfd ?
+{
+}
+probe __nd2_syscall.compat_signalfd4 = kprobe.function(@arch_syscall_prefix "compat_sys_signalfd4")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 u32_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1),
+				 pointer_arg(2), u32_arg(3),
+				 _signalfd4_flags_str(flags))
+	}
+}
+probe __nd2_syscall.compat_signalfd = kprobe.function(@arch_syscall_prefix "compat_sys_signalfd")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	flags = 0
+	name = "signalfd"
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 u32_arg(3))
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_signalfd = __tp_syscall.compat_signalfd4 !,
+                                   __tp_syscall.compat_signalfd ?
+{
+}
+probe __tp_syscall.compat_signalfd4 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_signalfd4"))
+	flags = int_arg(4)
+	if (flags == 0) {
+		name = "signalfd"
+		argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+				 u32_arg(3))
+	} else {
+		name = "signalfd4"
+		argstr = sprintf("%d, %p, %d, %s", int_arg(1),
+				 pointer_arg(2), u32_arg(3),
+				 _signalfd4_flags_str(flags))
+	}
+}
+probe __tp_syscall.compat_signalfd = kernel.function("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_signalfd"))
+	flags = int_arg(4)
+	flags = 0
+	name = "signalfd"
+	argstr = sprintf("%d, %p, %d", int_arg(1), pointer_arg(2),
+			 u32_arg(3))
+}
+
+probe nd_syscall.compat_signalfd.return = nd1_syscall.compat_signalfd.return!, nd2_syscall.compat_signalfd.return!, tp_syscall.compat_signalfd.return
+  { }
+
+probe nd1_syscall.compat_signalfd.return =
+		__nd1_syscall.compat_signalfd4.return !,
+		__nd1_syscall.compat_signalfd.return ?
+{
+}
+probe __nd1_syscall.compat_signalfd4.return =
+		kprobe.function("compat_sys_signalfd4").return
+{
+	flags = @entry(__asmlinkage_int_arg(4))
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.compat_signalfd.return =
+		kprobe.function("compat_sys_signalfd").return
+{
+	flags = 0
+	name = "signalfd"
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_signalfd.return =
+		__nd2_syscall.compat_signalfd4.return !,
+		__nd2_syscall.compat_signalfd.return ?
+{
+}
+probe __nd2_syscall.compat_signalfd4.return =
+		kprobe.function(@arch_syscall_prefix "compat_sys_signalfd4").return
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	flags = int_arg(4)
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.compat_signalfd.return =
+		kprobe.function(@arch_syscall_prefix "compat_sys_signalfd").return
+{
+	flags = 0
+	name = "signalfd"
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_signalfd.return =
+		__tp_syscall.compat_signalfd4.return !,
+		__tp_syscall.compat_signalfd.return ?
+{
+}
+probe __tp_syscall.compat_signalfd4.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_signalfd4"))
+	flags = int_arg(4)
+	name = (flags == 0) ? "signalfd" : "signalfd4"
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.compat_signalfd.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_signalfd"))
+	flags = 0
+	name = "signalfd"
+	@SYSC_RETVALSTR($ret)
+}

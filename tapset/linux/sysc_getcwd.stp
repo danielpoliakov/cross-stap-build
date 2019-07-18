@@ -1,0 +1,94 @@
+# getcwd _____________________________________________________
+# long sys_getcwd(char __user *buf, unsigned long size)
+
+@define _SYSCALL_GETCWD_NAME
+%(
+	name = "getcwd"
+%)
+
+@define _SYSCALL_GETCWD_ARGSTR
+%(
+	argstr = sprintf("%p, %d", buf_uaddr, size)
+%)
+
+@define _SYSCALL_GETCWD_REGARGS
+%(
+	buf_uaddr = pointer_arg(1)
+	size = ulong_arg(2)
+%)
+
+probe syscall.getcwd = dw_syscall.getcwd !, nd_syscall.getcwd ? {}
+probe syscall.getcwd.return = dw_syscall.getcwd.return !, nd_syscall.getcwd.return ? {}
+
+# dw_getcwd _____________________________________________________
+# long sys_getcwd(char __user *buf, unsigned long size)
+probe dw_syscall.getcwd = kernel.function("sys_getcwd").call
+{
+	@_SYSCALL_GETCWD_NAME
+	buf_uaddr = $buf
+	size = $size
+	@_SYSCALL_GETCWD_ARGSTR
+}
+probe dw_syscall.getcwd.return = kernel.function("sys_getcwd").return
+{
+	@_SYSCALL_GETCWD_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getcwd _____________________________________________________
+# long sys_getcwd(char __user *buf, unsigned long size)
+#
+probe nd_syscall.getcwd = nd1_syscall.getcwd!, nd2_syscall.getcwd!, tp_syscall.getcwd
+  { }
+
+probe nd1_syscall.getcwd = kprobe.function("sys_getcwd") ?
+{
+	@_SYSCALL_GETCWD_NAME
+	asmlinkage()
+	@_SYSCALL_GETCWD_REGARGS
+	@_SYSCALL_GETCWD_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getcwd = kprobe.function(@arch_syscall_prefix "sys_getcwd") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETCWD_NAME
+	@_SYSCALL_GETCWD_REGARGS
+	@_SYSCALL_GETCWD_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getcwd = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getcwd"), @const("__NR_compat_getcwd"))
+	@_SYSCALL_GETCWD_NAME
+	@_SYSCALL_GETCWD_REGARGS
+	@_SYSCALL_GETCWD_ARGSTR
+}
+
+probe nd_syscall.getcwd.return = nd1_syscall.getcwd.return!, nd2_syscall.getcwd.return!, tp_syscall.getcwd.return
+  { }
+
+probe nd1_syscall.getcwd.return = kprobe.function("sys_getcwd").return ?
+{
+	@_SYSCALL_GETCWD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getcwd.return = kprobe.function(@arch_syscall_prefix "sys_getcwd").return ?
+{
+	@_SYSCALL_GETCWD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getcwd.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getcwd"), @const("__NR_compat_getcwd"))
+	@_SYSCALL_GETCWD_NAME
+	@SYSC_RETVALSTR($ret)
+}

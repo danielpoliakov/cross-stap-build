@@ -1,0 +1,126 @@
+# sigprocmask ________________________________________________
+# long sys_sigprocmask(int how, old_sigset_t __user *set, old_sigset_t __user *oset)
+# asmlinkage long compat_sys_sigprocmask(int how,
+# 				         compat_old_sigset_t __user *nset,
+#				         compat_old_sigset_t __user *oset)
+#
+
+@define _SYSCALL_SIGPROCMASK_NAME
+%(
+	name = "sigprocmask"
+%)
+
+@define _SYSCALL_SIGPROCMASK_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %p", how_str, set_uaddr, oldset_uaddr)
+%)
+
+@define _SYSCALL_SIGPROCMASK_REGARGS
+%(
+	how  = int_arg(1)
+	how_str = _sigprocmask_how_str(how)
+	set_uaddr    = pointer_arg(2)
+	oldset_uaddr = pointer_arg(3)
+%)
+
+probe syscall.sigprocmask = dw_syscall.sigprocmask !, nd_syscall.sigprocmask ? {}
+probe syscall.sigprocmask.return = dw_syscall.sigprocmask.return !,
+                                   nd_syscall.sigprocmask.return ? {}
+
+# dw_sigprocmask _____________________________________________________
+
+probe dw_syscall.sigprocmask = __syscall.sigprocmask ?,
+                            kernel.function("compat_sys_sigprocmask").call ?
+{
+	@_SYSCALL_SIGPROCMASK_NAME
+	how = __int32($how)
+	how_str = _sigprocmask_how_str(how)
+	set_uaddr = @__pointer(@choose_defined($set, $nset))
+	oldset_uaddr = @__compat_ulong($oset)
+	@_SYSCALL_SIGPROCMASK_ARGSTR
+}
+probe __syscall.sigprocmask = kernel.function("sys_sigprocmask").call ?
+{
+	@__syscall_gate(@const("__NR_sigprocmask"))
+}
+probe dw_syscall.sigprocmask.return = __syscall.sigprocmask.return ?,
+	kernel.function("compat_sys_sigprocmask").return ?
+{
+	@_SYSCALL_SIGPROCMASK_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.sigprocmask.return =
+	kernel.function("sys_sigprocmask").return ?
+{
+	@__syscall_gate(@const("__NR_sigprocmask"))
+}
+
+# nd_sigprocmask _____________________________________________________
+
+probe nd_syscall.sigprocmask = nd1_syscall.sigprocmask!, nd2_syscall.sigprocmask!, tp_syscall.sigprocmask
+  { }
+
+probe nd1_syscall.sigprocmask = __nd1_syscall.sigprocmask ?,
+			        kprobe.function("compat_sys_sigprocmask") ?
+{
+	@_SYSCALL_SIGPROCMASK_NAME
+	asmlinkage()
+	@_SYSCALL_SIGPROCMASK_REGARGS
+	@_SYSCALL_SIGPROCMASK_ARGSTR
+}
+probe __nd1_syscall.sigprocmask = kprobe.function("sys_sigprocmask") ?
+{
+	@__syscall_gate(@const("__NR_sigprocmask"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigprocmask =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigprocmask") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SIGPROCMASK_NAME
+	@_SYSCALL_SIGPROCMASK_REGARGS
+	@_SYSCALL_SIGPROCMASK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigprocmask = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigprocmask"), @const("__NR_compat_sigprocmask"))
+	@_SYSCALL_SIGPROCMASK_NAME
+	@_SYSCALL_SIGPROCMASK_REGARGS
+	@_SYSCALL_SIGPROCMASK_ARGSTR
+}
+
+probe nd_syscall.sigprocmask.return = nd1_syscall.sigprocmask.return!, nd2_syscall.sigprocmask.return!, tp_syscall.sigprocmask.return
+  { }
+
+probe nd1_syscall.sigprocmask.return = __nd1_syscall.sigprocmask.return ?,
+	kprobe.function("compat_sys_sigprocmask").return ?
+{
+	@_SYSCALL_SIGPROCMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.sigprocmask.return =
+	kprobe.function("sys_sigprocmask").return ?
+{
+	@__syscall_gate(@const("__NR_sigprocmask"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigprocmask.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigprocmask").return ?
+{
+	@_SYSCALL_SIGPROCMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigprocmask.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sigprocmask"), @const("__NR_compat_sigprocmask"))
+	@_SYSCALL_SIGPROCMASK_NAME
+	@SYSC_RETVALSTR($ret)
+}

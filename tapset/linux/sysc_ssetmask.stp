@@ -1,0 +1,96 @@
+# ssetmask ___________________________________________________
+#
+# long sys_ssetmask(int newmask)
+#
+
+@define _SYSCALL_SSETMASK_NAME
+%(
+	name = "ssetmask"
+%)
+
+@define _SYSCALL_SSETMASK_ARGSTR
+%(
+	argstr = _stp_sigmask_str(newmask)
+%)
+
+@define _SYSCALL_SSETMASK_REGARGS
+%(
+	newmask = int_arg(1)
+	newmask_str = _stp_sigmask_str(newmask)
+%)
+
+probe syscall.ssetmask = dw_syscall.ssetmask !, nd_syscall.ssetmask ? {}
+probe syscall.ssetmask.return = dw_syscall.ssetmask.return !,
+                                nd_syscall.ssetmask.return ? {}
+
+# dw_ssetmask _____________________________________________________
+
+probe dw_syscall.ssetmask = kernel.function("sys_ssetmask").call ?
+{
+	@_SYSCALL_SSETMASK_NAME
+	newmask = __int32($newmask)
+	newmask_str = _stp_sigmask_str(__int32($newmask))
+	@_SYSCALL_SSETMASK_ARGSTR
+}
+probe dw_syscall.ssetmask.return = kernel.function("sys_ssetmask").return ?
+{
+	@_SYSCALL_SSETMASK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_ssetmask _____________________________________________________
+
+probe nd_syscall.ssetmask = nd1_syscall.ssetmask!, nd2_syscall.ssetmask!, tp_syscall.ssetmask
+  { }
+
+probe nd1_syscall.ssetmask = kprobe.function("sys_ssetmask") ?
+{
+	@_SYSCALL_SSETMASK_NAME
+	asmlinkage()
+	@_SYSCALL_SSETMASK_REGARGS
+	@_SYSCALL_SSETMASK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ssetmask = kprobe.function(@arch_syscall_prefix "sys_ssetmask") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SSETMASK_NAME
+	@_SYSCALL_SSETMASK_REGARGS
+	@_SYSCALL_SSETMASK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ssetmask = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ssetmask"), @const("__NR_compat_ssetmask"))
+	@_SYSCALL_SSETMASK_NAME
+	@_SYSCALL_SSETMASK_REGARGS
+	@_SYSCALL_SSETMASK_ARGSTR
+}
+
+probe nd_syscall.ssetmask.return = nd1_syscall.ssetmask.return!, nd2_syscall.ssetmask.return!, tp_syscall.ssetmask.return
+  { }
+
+probe nd1_syscall.ssetmask.return = kprobe.function("sys_ssetmask").return ?
+{
+	@_SYSCALL_SSETMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ssetmask.return = kprobe.function(@arch_syscall_prefix "sys_ssetmask").return ?
+{
+	@_SYSCALL_SSETMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ssetmask.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ssetmask"), @const("__NR_compat_ssetmask"))
+	@_SYSCALL_SSETMASK_NAME
+	@SYSC_RETVALSTR($ret)
+}

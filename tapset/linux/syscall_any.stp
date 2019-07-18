@@ -1,0 +1,50 @@
+/**
+ * probe syscall_any - Record entry into a syscall
+ *
+ * @syscall_nr: number of the syscall
+ * @name: name of the syscall
+ *
+ * Context: The process performing the syscall
+ *
+ * The syscall_any probe point is designed to be a low overhead
+ * that monitors all the syscalls entered via a kernel tracepoint.
+ * Because of the breadth of syscalls it monitors it provides
+ * no information about the syscall arguments or argstr string
+ * representation of those arguments.
+ *
+ * This requires kernel 3.5+ and newer which have the
+ * kernel.trace("sys_enter") probe point.
+ */
+probe syscall_any = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	syscall_nr = $id
+	name = syscall_name($id)
+}
+
+/**
+ * probe syscall_any.return - Record exit from a syscall
+ *
+ * @syscall_nr: number of the syscall
+ * @name: name of the syscall
+ * @retval: return value of the syscall
+ *
+ * Context: The process performing the syscall
+ *
+ * The syscall_any.return probe point is designed to be a low overhead
+ * that monitors all the syscalls returns via a kernel tracepoint.
+ * Because of the breadth of syscalls it monitors it provides
+ * no information about the syscall arguments, argstr string
+ * representation of those arguments, or a string interpretation
+ * of the return value (retval).
+ *
+ * This requires kernel 3.5+ and newer which have the
+ * kernel.trace("sys_exit") probe point.
+ */
+probe syscall_any.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	syscall_nr = _stp_syscall_nr()
+	name = syscall_name(_stp_syscall_nr())
+	retval = $ret
+}

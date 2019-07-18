@@ -1,0 +1,112 @@
+# sched_setaffinity __________________________________________
+# long sys_sched_setaffinity(pid_t pid,
+#	unsigned int len,
+#	unsigned long __user *user_mask_ptr)
+#
+
+@define _SYSCALL_SCHED_SETAFFINITY_NAME
+%(
+	name = "sched_setaffinity"
+%)
+
+@define _SYSCALL_SCHED_SETAFFINITY_ARGSTR
+%(
+	argstr = sprintf("%d, %u, %p", pid, len, mask_uaddr)
+%)
+
+@define _SYSCALL_SCHED_SETAFFINITY_REGARGS
+%(
+	pid = int_arg(1)
+	len = uint_arg(2)
+	mask_uaddr = pointer_arg(3)
+%)
+
+probe syscall.sched_setaffinity = dw_syscall.sched_setaffinity !,
+                                  nd_syscall.sched_setaffinity ? {}
+probe syscall.sched_setaffinity.return = dw_syscall.sched_setaffinity.return !,
+                                         nd_syscall.sched_setaffinity.return ? {}
+
+# dw_sched_setaffinity _____________________________________________________
+
+probe dw_syscall.sched_setaffinity =
+	kernel.function("sys_sched_setaffinity").call ?,
+	kernel.function("compat_sys_sched_setaffinity").call ?
+{
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	pid = __int32($pid)
+	len = __uint32(@choose_defined($len, 0))
+	mask_uaddr = @__pointer($user_mask_ptr)
+	@_SYSCALL_SCHED_SETAFFINITY_ARGSTR
+}
+probe dw_syscall.sched_setaffinity.return =
+	kernel.function("sys_sched_setaffinity").return ?,
+	kernel.function("compat_sys_sched_setaffinity").return ?
+{
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sched_setaffinity _____________________________________________________
+
+probe nd_syscall.sched_setaffinity = nd1_syscall.sched_setaffinity!, nd2_syscall.sched_setaffinity!, tp_syscall.sched_setaffinity
+  { }
+
+probe nd1_syscall.sched_setaffinity =
+	kprobe.function("sys_sched_setaffinity") ?,
+	kprobe.function("compat_sys_sched_setaffinity") ?
+{
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	asmlinkage()
+	@_SYSCALL_SCHED_SETAFFINITY_REGARGS
+	@_SYSCALL_SCHED_SETAFFINITY_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_setaffinity =
+	kprobe.function(@arch_syscall_prefix "sys_sched_setaffinity") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sched_setaffinity") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@_SYSCALL_SCHED_SETAFFINITY_REGARGS
+	@_SYSCALL_SCHED_SETAFFINITY_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_setaffinity = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_setaffinity"), @const("__NR_compat_sched_setaffinity"))
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@_SYSCALL_SCHED_SETAFFINITY_REGARGS
+	@_SYSCALL_SCHED_SETAFFINITY_ARGSTR
+}
+
+probe nd_syscall.sched_setaffinity.return = nd1_syscall.sched_setaffinity.return!, nd2_syscall.sched_setaffinity.return!, tp_syscall.sched_setaffinity.return
+  { }
+  
+probe nd1_syscall.sched_setaffinity.return =
+	kprobe.function("sys_sched_setaffinity").return ?,
+	kprobe.function("compat_sys_sched_setaffinity").return ?
+{
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_setaffinity.return =
+	kprobe.function(@arch_syscall_prefix "sys_sched_setaffinity").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_sched_setaffinity").return ?
+{
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_setaffinity.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_setaffinity"), @const("__NR_compat_sched_setaffinity"))
+	@_SYSCALL_SCHED_SETAFFINITY_NAME
+	@SYSC_RETVALSTR($ret)
+}

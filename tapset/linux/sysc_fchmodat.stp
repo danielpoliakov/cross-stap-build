@@ -1,0 +1,114 @@
+# fchmodat ___________________________________________________
+# new function with 2.6.16
+# long sys_fchmodat(int dfd, const char __user *filename,
+#	mode_t mode)
+
+@define _SYSCALL_FCHMODAT_NAME
+%(
+	name = "fchmodat"
+%)
+
+@define _SYSCALL_FCHMODAT_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %#o", dirfd_str, pathname, mode)
+%)
+
+@define _SYSCALL_FCHMODAT_REGARGS
+%(
+	dirfd = int_arg(1)
+	dirfd_str = _dfd_str(dirfd)
+	pathname = user_string_quoted(pointer_arg(2))
+	mode = uint_arg(3)
+%)
+
+probe syscall.fchmodat = dw_syscall.fchmodat !, nd_syscall.fchmodat ? {}
+probe syscall.fchmodat.return = dw_syscall.fchmodat.return !, nd_syscall.fchmodat.return ? {}
+
+# dw_fchmodat _____________________________________________________
+
+probe dw_syscall.fchmodat = kernel.function("sys_fchmodat").call ?
+{
+	@__syscall_compat_gate(@const("__NR_fchmodat"),
+			       @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	dirfd = __int32($dfd)
+	dirfd_str = _dfd_str(__int32($dfd))
+	pathname = user_string_quoted($filename)
+%( arch == "i386" %?
+	# Why @cast() here? Even though the user passes an unsigned
+	# int (32-bits), some kernels (2.6.32-431.el6.i686) get an
+	# unsigned short (16-bits).
+	mode = @uint_cast(&$mode)
+%:
+	mode = __uint32($mode)
+%)
+	@_SYSCALL_FCHMODAT_ARGSTR
+}
+probe dw_syscall.fchmodat.return = kernel.function("sys_fchmodat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_fchmodat"),
+			       @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fchmodat _____________________________________________________
+
+probe nd_syscall.fchmodat = nd1_syscall.fchmodat!, nd2_syscall.fchmodat!, tp_syscall.fchmodat
+  { }
+
+probe nd1_syscall.fchmodat = kprobe.function("sys_fchmodat") ?
+{
+	@__syscall_compat_gate(@const("__NR_fchmodat"),
+			       @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	asmlinkage()
+	@_SYSCALL_FCHMODAT_REGARGS
+	@_SYSCALL_FCHMODAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchmodat = kprobe.function(@arch_syscall_prefix "sys_fchmodat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FCHMODAT_NAME
+	@_SYSCALL_FCHMODAT_REGARGS
+	@_SYSCALL_FCHMODAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchmodat = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchmodat"), @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	@_SYSCALL_FCHMODAT_REGARGS
+	@_SYSCALL_FCHMODAT_ARGSTR
+}
+
+probe nd_syscall.fchmodat.return = nd1_syscall.fchmodat.return!, nd2_syscall.fchmodat.return!, tp_syscall.fchmodat.return
+  { }
+  
+probe nd1_syscall.fchmodat.return = kprobe.function("sys_fchmodat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_fchmodat"),
+			       @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchmodat.return = kprobe.function(@arch_syscall_prefix "sys_fchmodat").return ?
+{
+	@_SYSCALL_FCHMODAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchmodat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchmodat"), @const("__NR_compat_fchmodat"))
+	@_SYSCALL_FCHMODAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

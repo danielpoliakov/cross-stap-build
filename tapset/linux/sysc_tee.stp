@@ -1,0 +1,99 @@
+# tee _____________________________________________________
+#
+# long sys_tee(int fdin, int fdout, size_t len, unsigned int flags)
+#
+
+@define _SYSCALL_TEE_NAME
+%(
+	name = "tee"
+%)
+
+@define _SYSCALL_TEE_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %u, 0x%x", fdin, fdout, len, flags)
+%)
+
+@define _SYSCALL_TEE_REGARGS
+%(
+	fdin = int_arg(1)
+	fdout = int_arg(2)
+	len = ulong_arg(3)
+	flags = uint_arg(4)
+%)
+
+probe syscall.tee = dw_syscall.tee !, nd_syscall.tee ? {}
+probe syscall.tee.return = dw_syscall.tee.return !, nd_syscall.tee.return ? {}
+
+# dw_tee _____________________________________________________
+
+probe dw_syscall.tee = kernel.function("sys_tee").call ?
+{
+	@_SYSCALL_TEE_NAME
+	fdin = __int32($fdin)
+	fdout = __int32($fdout)
+	len = @__compat_ulong($len)
+	flags = __uint32($flags)
+	@_SYSCALL_TEE_ARGSTR
+}
+probe dw_syscall.tee.return = kernel.function("sys_tee").return ?
+{
+	@_SYSCALL_TEE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_tee _____________________________________________________
+
+probe nd_syscall.tee = nd1_syscall.tee!, nd2_syscall.tee!, tp_syscall.tee
+  { }
+
+probe nd1_syscall.tee = kprobe.function("sys_tee") ?
+{
+	@_SYSCALL_TEE_NAME
+	asmlinkage()
+	@_SYSCALL_TEE_REGARGS
+	@_SYSCALL_TEE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.tee = kprobe.function(@arch_syscall_prefix "sys_tee") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TEE_NAME
+	@_SYSCALL_TEE_REGARGS
+	@_SYSCALL_TEE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.tee = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_tee"), @const("__NR_compat_tee"))
+	@_SYSCALL_TEE_NAME
+	@_SYSCALL_TEE_REGARGS
+	@_SYSCALL_TEE_ARGSTR
+}
+
+probe nd_syscall.tee.return = nd1_syscall.tee.return!, nd2_syscall.tee.return!, tp_syscall.tee.return
+  { }
+
+probe nd1_syscall.tee.return = kprobe.function("sys_tee").return ?
+{
+	@_SYSCALL_TEE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.tee.return = kprobe.function(@arch_syscall_prefix "sys_tee").return ?
+{
+	@_SYSCALL_TEE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.tee.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_tee"), @const("__NR_compat_tee"))
+	@_SYSCALL_TEE_NAME
+	@SYSC_RETVALSTR($ret)
+}

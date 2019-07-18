@@ -1,0 +1,90 @@
+# pause ______________________________________________________
+#
+# sys_pause(void)
+#
+
+@define _SYSCALL_PAUSE_NAME
+%(
+	name = "pause"
+%)
+
+@define _SYSCALL_PAUSE_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.pause = dw_syscall.pause !, nd_syscall.pause ? {}
+probe syscall.pause.return = dw_syscall.pause.return !,
+                             nd_syscall.pause.return ? {}
+
+# dw_pause _____________________________________________________
+
+probe dw_syscall.pause = kernel.function("sys_pause").call ?,
+                      kernel.function("sys32_pause").call ?,
+                      kernel.function("compat_sys_pause").call ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@_SYSCALL_PAUSE_ARGSTR
+}
+probe dw_syscall.pause.return = kernel.function("sys_pause").return ?,
+                             kernel.function("sys32_pause").return ?,
+                             kernel.function("compat_sys_pause").return ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pause _____________________________________________________
+
+probe nd_syscall.pause = nd1_syscall.pause!, nd2_syscall.pause!, tp_syscall.pause
+  { }
+
+probe nd1_syscall.pause = kprobe.function("sys_pause") ?,
+                         kprobe.function("sys32_pause") ?,
+                         kprobe.function("compat_sys_pause") ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@_SYSCALL_PAUSE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pause = kprobe.function(@arch_syscall0_prefix "sys_pause") ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@_SYSCALL_PAUSE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pause = kernel.trace("sys_enter") ?
+{
+	@__syscall_compat_gate(@const("__NR_pause"), @const("__NR_compat_pause"))
+	@_SYSCALL_PAUSE_NAME
+	@_SYSCALL_PAUSE_ARGSTR
+}
+
+probe nd_syscall.pause.return = nd1_syscall.pause.return!, nd2_syscall.pause.return!, tp_syscall.pause.return
+  { }
+  
+probe nd1_syscall.pause.return = kprobe.function("sys_pause").return ?,
+                                kprobe.function("sys32_pause").return ?,
+                                kprobe.function("compat_sys_pause").return ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pause.return = kprobe.function(@arch_syscall0_prefix "sys_pause").return ?
+{
+	@_SYSCALL_PAUSE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pause.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pause"), @const("__NR_compat_pause"))
+	@_SYSCALL_PAUSE_NAME
+	@SYSC_RETVALSTR($ret)
+}

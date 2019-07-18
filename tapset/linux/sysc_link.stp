@@ -1,0 +1,94 @@
+# link _______________________________________________________
+# long sys_link(const char __user * oldname,
+#          const char __user * newname)
+
+@define _SYSCALL_LINK_NAME
+%(
+	name = "link"
+%)
+
+@define _SYSCALL_LINK_ARGSTR
+%(
+	argstr = sprintf("%s, %s", oldpath, newpath)
+%)
+
+@define _SYSCALL_LINK_REGARGS
+%(
+	oldpath = user_string_quoted(pointer_arg(1))
+	newpath = user_string_quoted(pointer_arg(2))
+%)
+
+probe syscall.link = dw_syscall.link !, nd_syscall.link ? {}
+probe syscall.link.return = dw_syscall.link.return !, nd_syscall.link.return ? {}
+
+# dw_link _____________________________________________________
+
+probe dw_syscall.link = kernel.function("sys_link").call
+{
+	@_SYSCALL_LINK_NAME
+	oldpath = user_string_quoted($oldname)
+	newpath = user_string_quoted($newname)
+	@_SYSCALL_LINK_ARGSTR
+}
+probe dw_syscall.link.return = kernel.function("sys_link").return
+{
+	@_SYSCALL_LINK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_link _____________________________________________________
+
+probe nd_syscall.link = nd1_syscall.link!, nd2_syscall.link!, tp_syscall.link
+  { }
+
+probe nd1_syscall.link = kprobe.function("sys_link") ?
+{
+	@_SYSCALL_LINK_NAME
+	asmlinkage()
+	@_SYSCALL_LINK_REGARGS
+	@_SYSCALL_LINK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.link = kprobe.function(@arch_syscall_prefix "sys_link") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LINK_NAME
+	@_SYSCALL_LINK_REGARGS
+	@_SYSCALL_LINK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.link = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_link"), @const("__NR_compat_link"))
+	@_SYSCALL_LINK_NAME
+	@_SYSCALL_LINK_REGARGS
+	@_SYSCALL_LINK_ARGSTR
+}
+
+probe nd_syscall.link.return = nd1_syscall.link.return!, nd2_syscall.link.return!, tp_syscall.link.return
+  { }
+  
+probe nd1_syscall.link.return = kprobe.function("sys_link").return ?
+{
+	@_SYSCALL_LINK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.link.return = kprobe.function(@arch_syscall_prefix "sys_link").return ?
+{
+	@_SYSCALL_LINK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.link.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_link"), @const("__NR_compat_link"))
+	@_SYSCALL_LINK_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,99 @@
+# mlock2 _____________________________________________________
+#
+# long sys_mlock2(unsigned long start, size_t len, int flags)
+#
+
+@define _SYSCALL_MLOCK2_NAME
+%(
+	name = "mlock2"
+%)
+
+@define _SYSCALL_MLOCK2_ARGSTR
+%(
+	argstr = sprintf("%p, %u, %s", addr, len, flags_str)
+%)
+
+@define _SYSCALL_MLOCK2_REGARGS
+%(
+	addr = ulong_arg(1)
+	len = ulong_arg(2)
+	flags = int_arg(3)
+	flags_str = _stp_mlock2_str(flags)
+%)
+
+probe syscall.mlock2 = dw_syscall.mlock2 !, nd_syscall.mlock2 ? {}
+probe syscall.mlock2.return = dw_syscall.mlock2.return !, nd_syscall.mlock2.return ? {}
+
+# dw_mlock2 _____________________________________________________
+
+probe dw_syscall.mlock2 = kernel.function("sys_mlock2").call ?
+{
+	@_SYSCALL_MLOCK2_NAME
+	addr = __ulong($start)
+	len = __ulong($len)
+	flags = __int32($flags)
+	flags_str = _stp_mlock2_str(__int32($flags))
+	@_SYSCALL_MLOCK2_ARGSTR
+}
+probe dw_syscall.mlock2.return = kernel.function("sys_mlock2").return ?
+{
+	@_SYSCALL_MLOCK2_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mlock2 _____________________________________________________
+
+probe nd_syscall.mlock2 = nd1_syscall.mlock2!, nd2_syscall.mlock2!, tp_syscall.mlock2
+  { }
+
+probe nd1_syscall.mlock2 = kprobe.function("sys_mlock2") ?
+{
+	@_SYSCALL_MLOCK2_NAME
+	asmlinkage()
+	@_SYSCALL_MLOCK2_REGARGS
+	@_SYSCALL_MLOCK2_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mlock2 = kprobe.function(@arch_syscall_prefix "sys_mlock2") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MLOCK2_NAME
+	@_SYSCALL_MLOCK2_REGARGS
+	@_SYSCALL_MLOCK2_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mlock2 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mlock2"), @const("__NR_compat_mlock2"))
+	@_SYSCALL_MLOCK2_NAME
+	@_SYSCALL_MLOCK2_REGARGS
+	@_SYSCALL_MLOCK2_ARGSTR
+}
+
+probe nd_syscall.mlock2.return = nd1_syscall.mlock2.return!, nd2_syscall.mlock2.return!, tp_syscall.mlock2.return
+  { }
+  
+probe nd1_syscall.mlock2.return = kprobe.function("sys_mlock2").return ?
+{
+	@_SYSCALL_MLOCK2_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mlock2.return = kprobe.function(@arch_syscall_prefix "sys_mlock2").return ?
+{
+	@_SYSCALL_MLOCK2_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mlock2.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mlock2"), @const("__NR_compat_mlock2"))
+	@_SYSCALL_MLOCK2_NAME
+	@SYSC_RETVALSTR($ret)
+}

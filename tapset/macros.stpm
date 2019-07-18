@@ -1,0 +1,19 @@
+// Return MAXSTRINGLEN
+@define MAXSTRINGLEN
+%(
+	@const("MAXSTRINGLEN")
+%)
+
+@define __compat_task
+%(
+	%{ /* pure */ _stp_is_compat_task() %}
+%)
+
+@define this1 %( __this_var1[tid()] %)
+@define this2 %( __this_var2[tid()] %)
+@define this3 %( __this_var3[tid()] %)
+@define this4 %( __this_var4[tid()] %)
+@define this5 %( __this_var5[tid()] %)
+@define this6 %( __this_var6[tid()] %)
+@define this7 %( __this_var7[tid()] %)
+@define this8 %( __this_var8[tid()] %)

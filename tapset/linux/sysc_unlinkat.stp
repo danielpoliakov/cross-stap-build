@@ -1,0 +1,104 @@
+# unlinkat ___________________________________________________
+# new function with 2.6.16
+# long sys_unlinkat(int dfd, const char __user *pathname,
+#	int flag)
+
+@define _SYSCALL_UNLINKAT_NAME
+%(
+	name = "unlinkat"
+%)
+
+@define _SYSCALL_UNLINKAT_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s", dfd_str, pathname_str, flag_str)
+%)
+
+@define _SYSCALL_UNLINKAT_REGARGS
+%(
+	dfd = int_arg(1)
+	dfd_str = _dfd_str(dfd)
+	pathname = pointer_arg(2)
+	pathname_str = user_string_quoted(pathname)
+	flag = uint_arg(3)
+	flag_str = _at_flag_str(flag)
+%)
+
+probe syscall.unlinkat = dw_syscall.unlinkat !, nd_syscall.unlinkat ? {}
+probe syscall.unlinkat.return = dw_syscall.unlinkat.return !,
+                                nd_syscall.unlinkat.return ? {}
+
+# dw_unlinkat _____________________________________________________
+
+probe dw_syscall.unlinkat = kernel.function("sys_unlinkat").call ?
+{
+	@_SYSCALL_UNLINKAT_NAME
+	dfd = __int32($dfd)
+	dfd_str = _dfd_str(__int32($dfd))
+	pathname = $pathname
+	pathname_str = user_string_quoted($pathname)
+	flag = __uint32($flag)
+	flag_str = _at_flag_str(__uint32($flag))
+	@_SYSCALL_UNLINKAT_ARGSTR
+}
+probe dw_syscall.unlinkat.return = kernel.function("sys_unlinkat").return ?
+{
+	@_SYSCALL_UNLINKAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_unlinkat _____________________________________________________
+
+probe nd_syscall.unlinkat = nd1_syscall.unlinkat!, nd2_syscall.unlinkat!, tp_syscall.unlinkat
+  { }
+
+probe nd1_syscall.unlinkat = kprobe.function("sys_unlinkat") ?
+{
+	@_SYSCALL_UNLINKAT_NAME
+	asmlinkage()
+	@_SYSCALL_UNLINKAT_REGARGS
+	@_SYSCALL_UNLINKAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.unlinkat = kprobe.function(@arch_syscall_prefix "sys_unlinkat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_UNLINKAT_NAME
+	@_SYSCALL_UNLINKAT_REGARGS
+	@_SYSCALL_UNLINKAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.unlinkat = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_unlinkat"), @const("__NR_compat_unlinkat"))
+	@_SYSCALL_UNLINKAT_NAME
+	@_SYSCALL_UNLINKAT_REGARGS
+	@_SYSCALL_UNLINKAT_ARGSTR
+}
+
+probe nd_syscall.unlinkat.return = nd1_syscall.unlinkat.return!, nd2_syscall.unlinkat.return!, tp_syscall.unlinkat.return
+  { }
+
+probe nd1_syscall.unlinkat.return = kprobe.function("sys_unlinkat").return ?
+{
+	@_SYSCALL_UNLINKAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.unlinkat.return = kprobe.function(@arch_syscall_prefix "sys_unlinkat").return ?
+{
+	@_SYSCALL_UNLINKAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.unlinkat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_unlinkat"), @const("__NR_compat_unlinkat"))
+	@_SYSCALL_UNLINKAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

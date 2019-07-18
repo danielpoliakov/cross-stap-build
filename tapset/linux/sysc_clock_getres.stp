@@ -1,0 +1,128 @@
+# clock_getres _______________________________________________
+# long sys_clock_getres(clockid_t which_clock, struct timespec __user *tp)
+# long compat_clock_getres(clockid_t which_clock, struct compat_timespec __user *tp)
+#
+
+@define _SYSCALL_CLOCK_GETRES_NAME
+%(
+	name = "clock_getres"
+%)
+
+@define _SYSCALL_CLOCK_GETRES_ARGSTR
+%(
+	argstr = sprintf("%s, %p", clk_id_str, res_uaddr)
+%)
+
+@define _SYSCALL_CLOCK_GETRES_REGARGS
+%(
+	clk_id = int_arg(1)
+	clk_id_str = _get_wc_str(clk_id)
+	res_uaddr = pointer_arg(2)
+%)
+
+probe syscall.clock_getres = dw_syscall.clock_getres !, nd_syscall.clock_getres ? {}
+probe syscall.clock_getres.return = dw_syscall.clock_getres.return !, nd_syscall.clock_getres.return ? {}
+
+# dw_clock_getres _____________________________________________________
+
+probe dw_syscall.clock_getres = kernel.function("compat_clock_getres").call ?,
+	kernel.function("compat_sys_clock_getres").call ?,
+	__syscall.clock_getres ?
+{
+	@_SYSCALL_CLOCK_GETRES_NAME
+	clk_id = __int32($which_clock)
+	clk_id_str = _get_wc_str(__int32($which_clock))
+	res_uaddr = $tp
+	@_SYSCALL_CLOCK_GETRES_ARGSTR
+}
+probe __syscall.clock_getres = kernel.function("sys_clock_getres").call
+{
+	@__syscall_gate(@const("__NR_clock_getres"))
+}
+probe dw_syscall.clock_getres.return =
+	kernel.function("compat_clock_getres").return ?,
+	kernel.function("compat_sys_clock_getres").return ?,
+	__syscall.clock_getres.return ?
+{
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.clock_getres.return =
+	kernel.function("sys_clock_getres").return
+{
+	@__syscall_gate(@const("__NR_clock_getres"))
+}
+
+# nd_clock_getres _____________________________________________________
+
+probe nd_syscall.clock_getres = nd1_syscall.clock_getres!, nd2_syscall.clock_getres!, tp_syscall.clock_getres
+  { }
+
+probe nd1_syscall.clock_getres = kprobe.function("compat_clock_getres") ?,
+	kprobe.function("compat_sys_clock_getres") ?,
+	__nd1_syscall.clock_getres ?
+{
+	asmlinkage()
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@_SYSCALL_CLOCK_GETRES_REGARGS
+	@_SYSCALL_CLOCK_GETRES_ARGSTR
+}
+probe __nd1_syscall.clock_getres = kprobe.function("sys_clock_getres")
+{
+	@__syscall_gate(@const("__NR_clock_getres"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.clock_getres = kprobe.function(@arch_syscall_prefix "compat_sys_clock_getres") ?,
+	kprobe.function(@arch_syscall_prefix "sys_clock_getres") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@_SYSCALL_CLOCK_GETRES_REGARGS
+	@_SYSCALL_CLOCK_GETRES_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_getres = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_getres"), @const("__NR_compat_clock_getres"))
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@_SYSCALL_CLOCK_GETRES_REGARGS
+	@_SYSCALL_CLOCK_GETRES_ARGSTR
+}
+
+probe nd_syscall.clock_getres.return = nd1_syscall.clock_getres.return!, nd2_syscall.clock_getres.return!, tp_syscall.clock_getres.return
+  { }
+
+probe nd1_syscall.clock_getres.return =
+	kprobe.function("compat_clock_getres").return ?,
+	kprobe.function("compat_sys_clock_getres").return ?,
+	__nd1_syscall.clock_getres.return ?
+{
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.clock_getres.return =
+	kprobe.function("sys_clock_getres").return
+{
+	@__syscall_gate(@const("__NR_clock_getres"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.clock_getres.return = 
+	kprobe.function(@arch_syscall_prefix "compat_sys_clock_getres").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_clock_getres").return ?
+{
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_getres.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_getres"), @const("__NR_compat_clock_getres"))
+	@_SYSCALL_CLOCK_GETRES_NAME
+	@SYSC_RETVALSTR($ret)
+}

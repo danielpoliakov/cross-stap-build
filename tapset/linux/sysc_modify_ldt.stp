@@ -1,0 +1,97 @@
+# modify_ldt _________________________________________________
+# int sys_modify_ldt(int func, void __user *ptr, unsigned long bytecount)
+#
+
+@define _SYSCALL_MODIFY_LDT_NAME
+%(
+	name = "modify_ldt"
+%)
+
+@define _SYSCALL_MODIFY_LDT_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %u", func, ptr_uaddr, bytecount)
+%)
+
+@define _SYSCALL_MODIFY_LDT_REGARGS
+%(
+	func = int_arg(1)
+	ptr_uaddr = pointer_arg(2)
+	bytecount = ulong_arg(3)
+%)
+
+probe syscall.modify_ldt = dw_syscall.modify_ldt !, nd_syscall.modify_ldt ? {}
+probe syscall.modify_ldt.return = dw_syscall.modify_ldt.return !,
+                                  nd_syscall.modify_ldt.return ? {}
+
+# dw_modify_ldt _____________________________________________________
+
+probe dw_syscall.modify_ldt = kernel.function("sys_modify_ldt").call ?
+{
+	@_SYSCALL_MODIFY_LDT_NAME
+	func = __int32($func)
+	ptr_uaddr = $ptr
+	bytecount = __ulong($bytecount)
+	@_SYSCALL_MODIFY_LDT_ARGSTR
+}
+probe dw_syscall.modify_ldt.return = kernel.function("sys_modify_ldt").return ?
+{
+	@_SYSCALL_MODIFY_LDT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_modify_ldt _____________________________________________________
+
+probe nd_syscall.modify_ldt = nd1_syscall.modify_ldt!, nd2_syscall.modify_ldt!, tp_syscall.modify_ldt
+  { }
+
+probe nd1_syscall.modify_ldt = kprobe.function("sys_modify_ldt") ?
+{
+	@_SYSCALL_MODIFY_LDT_NAME
+	asmlinkage()
+	@_SYSCALL_MODIFY_LDT_REGARGS
+	@_SYSCALL_MODIFY_LDT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.modify_ldt = kprobe.function(@arch_syscall_prefix "sys_modify_ldt") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MODIFY_LDT_NAME
+	@_SYSCALL_MODIFY_LDT_REGARGS
+	@_SYSCALL_MODIFY_LDT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.modify_ldt = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_modify_ldt"), @const("__NR_compat_modify_ldt"))
+	@_SYSCALL_MODIFY_LDT_NAME
+	@_SYSCALL_MODIFY_LDT_REGARGS
+	@_SYSCALL_MODIFY_LDT_ARGSTR
+}
+
+probe nd_syscall.modify_ldt.return = nd1_syscall.modify_ldt.return!, nd2_syscall.modify_ldt.return!, tp_syscall.modify_ldt.return
+  { }
+  
+probe nd1_syscall.modify_ldt.return = kprobe.function("sys_modify_ldt").return ?
+{
+	@_SYSCALL_MODIFY_LDT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.modify_ldt.return = kprobe.function(@arch_syscall_prefix "sys_modify_ldt").return ?
+{
+	@_SYSCALL_MODIFY_LDT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.modify_ldt.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_modify_ldt"), @const("__NR_compat_modify_ldt"))
+	@_SYSCALL_MODIFY_LDT_NAME
+	@SYSC_RETVALSTR($ret)
+}

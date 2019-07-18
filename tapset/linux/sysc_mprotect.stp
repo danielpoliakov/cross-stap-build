@@ -1,0 +1,98 @@
+# mprotect ___________________________________________________
+# long sys_mprotect(unsigned long start, size_t len, unsigned long prot)
+#
+
+@define _SYSCALL_MPROTECT_NAME
+%(
+	name = "mprotect"
+%)
+
+@define _SYSCALL_MPROTECT_ARGSTR
+%(
+	argstr = sprintf("%p, %u, %s", addr, len, prot_str)
+%)
+
+@define _SYSCALL_MPROTECT_REGARGS
+%(
+	addr = ulong_arg(1)
+	len = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+%)
+
+probe syscall.mprotect = dw_syscall.mprotect !, nd_syscall.mprotect ? {}
+probe syscall.mprotect.return = dw_syscall.mprotect.return !, nd_syscall.mprotect.return ? {}
+
+# dw_mprotect _____________________________________________________
+
+probe dw_syscall.mprotect = kernel.function("sys_mprotect").call ?
+{
+	@_SYSCALL_MPROTECT_NAME
+	addr = $start
+	len = $len
+	prot = $prot
+	prot_str = _mprotect_prot_str(prot)
+	@_SYSCALL_MPROTECT_ARGSTR
+}
+probe dw_syscall.mprotect.return = kernel.function("sys_mprotect").return ?
+{
+	@_SYSCALL_MPROTECT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mprotect _____________________________________________________
+
+probe nd_syscall.mprotect = nd1_syscall.mprotect!, nd2_syscall.mprotect!, tp_syscall.mprotect
+  { }
+
+probe nd1_syscall.mprotect = kprobe.function("sys_mprotect") ?
+{
+	@_SYSCALL_MPROTECT_NAME
+	asmlinkage()
+	@_SYSCALL_MPROTECT_REGARGS
+	@_SYSCALL_MPROTECT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mprotect = kprobe.function(@arch_syscall_prefix "sys_mprotect") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MPROTECT_NAME
+	@_SYSCALL_MPROTECT_REGARGS
+	@_SYSCALL_MPROTECT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mprotect = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mprotect"), @const("__NR_compat_mprotect"))
+	@_SYSCALL_MPROTECT_NAME
+	@_SYSCALL_MPROTECT_REGARGS
+	@_SYSCALL_MPROTECT_ARGSTR
+}
+
+probe nd_syscall.mprotect.return = nd1_syscall.mprotect.return!, nd2_syscall.mprotect.return!, tp_syscall.mprotect.return
+  { }
+  
+probe nd1_syscall.mprotect.return = kprobe.function("sys_mprotect").return ?
+{
+	@_SYSCALL_MPROTECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mprotect.return = kprobe.function(@arch_syscall_prefix "sys_mprotect").return ?
+{
+	@_SYSCALL_MPROTECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mprotect.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mprotect"), @const("__NR_compat_mprotect"))
+	@_SYSCALL_MPROTECT_NAME
+	@SYSC_RETVALSTR($ret)
+}

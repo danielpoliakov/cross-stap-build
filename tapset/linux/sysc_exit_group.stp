@@ -1,0 +1,70 @@
+# exit_group _________________________________________________
+# void sys_exit_group(int error_code)
+#
+# NB: the explicit .call ensures that alias suffixes can't infer .return
+
+@define _SYSCALL_EXIT_GROUP_NAME
+%(
+	name = "exit_group"
+%)
+
+@define _SYSCALL_EXIT_GROUP_ARGSTR
+%(
+	argstr = sprint(status)
+%)
+
+@define _SYSCALL_EXIT_GROUP_REGARGS
+%(
+	status = int_arg(1)
+%)
+
+probe syscall.exit_group = dw_syscall.exit_group !, nd_syscall.exit_group ? {}
+
+probe syscall.exit_group.return = never
+{
+	@_SYSCALL_EXIT_GROUP_NAME
+	@SYSC_RETVALSTR(0)
+}
+
+
+# dw_exit_group _____________________________________________________
+
+probe dw_syscall.exit_group = kernel.function("sys_exit_group").call
+{
+	@_SYSCALL_EXIT_GROUP_NAME
+	status = __int32($error_code)
+	@_SYSCALL_EXIT_GROUP_ARGSTR
+}
+
+# nd_exit_group _____________________________________________________
+
+probe nd_syscall.exit_group = nd1_syscall.exit_group!, nd2_syscall.exit_group!, tp_syscall.exit_group
+  { }
+
+probe nd1_syscall.exit_group = kprobe.function("sys_exit_group").call ?
+{
+	@_SYSCALL_EXIT_GROUP_NAME
+	asmlinkage()
+	@_SYSCALL_EXIT_GROUP_REGARGS
+	@_SYSCALL_EXIT_GROUP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.exit_group = kprobe.function(@arch_syscall_prefix "sys_exit_group")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_EXIT_GROUP_NAME
+	@_SYSCALL_EXIT_GROUP_REGARGS
+	@_SYSCALL_EXIT_GROUP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.exit_group = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_exit_group"), @const("__NR_compat_exit_group"))
+	@_SYSCALL_EXIT_GROUP_NAME
+	@_SYSCALL_EXIT_GROUP_REGARGS
+	@_SYSCALL_EXIT_GROUP_ARGSTR
+}
+

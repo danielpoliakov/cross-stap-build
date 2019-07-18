@@ -1,0 +1,129 @@
+# migrate_pages ____________________________________________________
+# long sys_migrate_pages(pid_t pid, unsigned long maxnode,
+#		const unsigned long __user *old_nodes,
+#		const unsigned long __user *new_nodes)
+
+@define _SYSCALL_MIGRATE_PAGES_NAME
+%(
+	name = "migrate_pages"
+%)
+
+@define _SYSCALL_MIGRATE_PAGES_ARGSTR
+%(
+	argstr = sprintf("%d, %u, %p, %p", pid, maxnode, old_nodes, new_nodes)
+%)
+
+@define _SYSCALL_MIGRATE_PAGES_REGARGS
+%(
+	pid = int_arg(1)
+	maxnode = ulong_arg(2)
+	old_nodes = pointer_arg(3)
+	new_nodes = pointer_arg(4)
+%)
+
+probe syscall.migrate_pages = dw_syscall.migrate_pages !,
+                              nd_syscall.migrate_pages ? {}
+probe syscall.migrate_pages.return = dw_syscall.migrate_pages.return !,
+                                     nd_syscall.migrate_pages.return ? {}
+
+# dw_migrate_pages _____________________________________________________
+
+probe dw_syscall.migrate_pages = __syscall.migrate_pages ?,
+                              kernel.function("compat_sys_migrate_pages").call ?
+{
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	pid = __int32($pid)
+	old_nodes = $old_nodes
+	new_nodes = $new_nodes
+	maxnode = @__compat_ulong($maxnode)
+	@_SYSCALL_MIGRATE_PAGES_ARGSTR
+}
+probe __syscall.migrate_pages = kernel.function("sys_migrate_pages").call
+{
+%( arch == "powerpc" %?
+	@__syscall_gate_compat_simple
+%)
+}
+probe dw_syscall.migrate_pages.return = __syscall.migrate_pages.return ?,
+                                     kernel.function("compat_sys_migrate_pages").return ?
+{
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.migrate_pages.return = kernel.function("sys_migrate_pages").return
+{
+%( arch == "powerpc" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+# nd_migrate_pages _____________________________________________________
+
+probe nd_syscall.migrate_pages = nd1_syscall.migrate_pages!, nd2_syscall.migrate_pages!, tp_syscall.migrate_pages
+  { }
+
+probe nd1_syscall.migrate_pages = __nd1_syscall.migrate_pages ?,
+                                  kprobe.function("compat_sys_migrate_pages") ?
+{
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	asmlinkage()
+	@_SYSCALL_MIGRATE_PAGES_REGARGS
+	@_SYSCALL_MIGRATE_PAGES_ARGSTR
+}
+probe __nd1_syscall.migrate_pages = kprobe.function("sys_migrate_pages")
+{
+%( arch == "powerpc" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.migrate_pages = kprobe.function(@arch_syscall_prefix "sys_migrate_pages") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@_SYSCALL_MIGRATE_PAGES_REGARGS
+	@_SYSCALL_MIGRATE_PAGES_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.migrate_pages = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_migrate_pages"), @const("__NR_compat_migrate_pages"))
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@_SYSCALL_MIGRATE_PAGES_REGARGS
+	@_SYSCALL_MIGRATE_PAGES_ARGSTR
+}
+
+probe nd_syscall.migrate_pages.return = nd1_syscall.migrate_pages.return!, nd2_syscall.migrate_pages.return!, tp_syscall.migrate_pages.return
+  { }
+
+probe nd1_syscall.migrate_pages.return = __nd1_syscall.migrate_pages.return ?,
+                                         kprobe.function("compat_sys_migrate_pages").return ?
+{
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.migrate_pages.return = kprobe.function("sys_migrate_pages").return
+{
+%( arch == "powerpc" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.migrate_pages.return = kprobe.function(@arch_syscall_prefix "sys_migrate_pages").return ?
+{
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.migrate_pages.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_migrate_pages"), @const("__NR_compat_migrate_pages"))
+	@_SYSCALL_MIGRATE_PAGES_NAME
+	@SYSC_RETVALSTR($ret)
+}

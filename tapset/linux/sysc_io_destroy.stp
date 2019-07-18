@@ -1,0 +1,92 @@
+# io_destroy _________________________________________________
+# long sys_io_destroy(aio_context_t ctx)
+
+@define _SYSCALL_IO_DESTROY_NAME
+%(
+	name = "io_destroy"
+%)
+
+@define _SYSCALL_IO_DESTROY_ARGSTR
+%(
+	argstr = sprintf("%u", ctx)
+%)
+
+@define _SYSCALL_IO_DESTROY_REGARGS
+%(
+	ctx = ulong_arg(1)
+%)
+
+probe syscall.io_destroy = dw_syscall.io_destroy !, nd_syscall.io_destroy ? {}
+probe syscall.io_destroy.return = dw_syscall.io_destroy.return !,
+                                  nd_syscall.io_destroy.return ? {}
+
+# dw_io_destroy _____________________________________________________
+
+probe dw_syscall.io_destroy = kernel.function("sys_io_destroy").call
+{
+	@_SYSCALL_IO_DESTROY_NAME
+	ctx = @__compat_ulong($ctx)
+	@_SYSCALL_IO_DESTROY_ARGSTR
+}
+probe dw_syscall.io_destroy.return = kernel.function("sys_io_destroy").return
+{
+	@_SYSCALL_IO_DESTROY_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_io_destroy _____________________________________________________
+
+probe nd_syscall.io_destroy = nd1_syscall.io_destroy!, nd2_syscall.io_destroy!, tp_syscall.io_destroy
+  { }
+
+probe nd1_syscall.io_destroy = kprobe.function("sys_io_destroy") ?
+{
+	@_SYSCALL_IO_DESTROY_NAME
+	asmlinkage()
+	@_SYSCALL_IO_DESTROY_REGARGS
+	@_SYSCALL_IO_DESTROY_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.io_destroy = kprobe.function(@arch_syscall_prefix "sys_io_destroy")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_IO_DESTROY_NAME
+	@_SYSCALL_IO_DESTROY_REGARGS
+	@_SYSCALL_IO_DESTROY_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.io_destroy = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_io_destroy"), @const("__NR_compat_io_destroy"))
+	@_SYSCALL_IO_DESTROY_NAME
+	@_SYSCALL_IO_DESTROY_REGARGS
+	@_SYSCALL_IO_DESTROY_ARGSTR
+}
+
+probe nd_syscall.io_destroy.return = nd1_syscall.io_destroy.return!, nd2_syscall.io_destroy.return!, tp_syscall.io_destroy.return
+  { }
+  
+probe nd1_syscall.io_destroy.return = kprobe.function("sys_io_destroy").return ?
+{
+	@_SYSCALL_IO_DESTROY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.io_destroy.return = kprobe.function(@arch_syscall_prefix "sys_io_destroy").return
+{
+	@_SYSCALL_IO_DESTROY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.io_destroy.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_io_destroy"), @const("__NR_compat_io_destroy"))
+	@_SYSCALL_IO_DESTROY_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,189 @@
+%( kernel_v >= "2.6.33" %?
+# In newer kernels (2.6.33+), all the sys_mmap() variants are just
+# wrappers around sys_mmap_pgoff(), which is in arch-generic code.
+#
+# long sys_mmap_pgoff(unsigned long addr, unsigned long len,
+#		unsigned long prot, unsigned long flags,
+#		unsigned long fd, unsigned long pgoff)
+
+@define _SYSCALL_MMAP2_NAME
+%(
+	name = "mmap2"
+%)
+
+@define _SYSCALL_MMAP2_ARGSTR
+%(
+	argstr = sprintf("%p, %u, %s, %s, %d, %d", start, length,
+	                 prot_str, flags_str, fd, pgoffset)
+%)
+
+probe syscall.mmap2 = dw_syscall.mmap2 !, nd_syscall.mmap2 ? {}
+probe syscall.mmap2.return = dw_syscall.mmap2.return !, nd_syscall.mmap2.return ? {}
+
+# dw_mmap2 _____________________________________________________
+
+probe dw_syscall.mmap2 = kernel.function("sys_mmap_pgoff") ?
+{
+	@_SYSCALL_MMAP2_NAME
+	start = $addr
+	length = __ulong($len)
+	prot = $prot
+	prot_str = _mprotect_prot_str(prot)
+	flags = $flags
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = __int32($fd)
+	# $pgoff is the number of pages. Convert this back into a
+	# number of bytes.
+	pgoffset = $pgoff * @const("PAGE_SIZE")
+	@_SYSCALL_MMAP2_ARGSTR
+}
+probe dw_syscall.mmap2.return = kernel.function("sys_mmap_pgoff").return ?
+{
+        @_SYSCALL_MMAP2_NAME
+        @SYSC_RETVALSTR2($return)
+}
+
+# nd_mmap2 _____________________________________________________
+
+probe nd_syscall.mmap2 = nd1_syscall.mmap2!, nd2_syscall.mmap2!, tp_syscall.mmap2
+  { }
+
+probe nd1_syscall.mmap2 = kprobe.function("sys_mmap_pgoff") ?
+{
+	@_SYSCALL_MMAP2_NAME
+	asmlinkage()
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	flags = ulong_arg(4)
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = int_arg(5)
+	# $pgoff is the number of pages. Convert this back into a
+	# number of bytes.
+	pgoffset = ulong_arg(6) * @const("PAGE_SIZE")
+	@_SYSCALL_MMAP2_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mmap2 = __nd2_syscall.mmap, __nd2_syscall.mmap_pgoff
+{
+}
+probe __nd2_syscall.mmap = kprobe.function(@arch_syscall_prefix "sys_mmap") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MMAP2_NAME
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	flags = ulong_arg(4)
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = int_arg(5)
+	# Here $pgoff is the number of bytes, no conversion needed
+	pgoffset = ulong_arg(6)
+	@_SYSCALL_MMAP2_ARGSTR
+}
+probe __nd2_syscall.mmap_pgoff = kprobe.function(@arch_syscall_prefix "sys_mmap_pgoff") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MMAP2_NAME
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	flags = ulong_arg(4)
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = int_arg(5)
+	# $pgoff is the number of pages. Convert this back into a
+	# number of bytes.
+	pgoffset = ulong_arg(6) * @const("PAGE_SIZE")
+	@_SYSCALL_MMAP2_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mmap2 = __tp_syscall.mmap, __tp_syscall.mmap_pgoff
+{
+}
+probe __tp_syscall.mmap = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_mmap"))
+	@_SYSCALL_MMAP2_NAME
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	flags = ulong_arg(4)
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = int_arg(5)
+	# Here $pgoff is the number of bytes, no conversion needed
+	pgoffset = ulong_arg(6)
+	@_SYSCALL_MMAP2_ARGSTR
+}
+probe __tp_syscall.mmap_pgoff = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mmap2"), @const("__NR_compat_mmap2"))
+	@_SYSCALL_MMAP2_NAME
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+	prot = ulong_arg(3)
+	prot_str = _mprotect_prot_str(prot)
+	flags = ulong_arg(4)
+	flags_str = _mmap_flags(flags)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = int_arg(5)
+	# $pgoff is the number of pages. Convert this back into a
+	# number of bytes.
+	pgoffset = ulong_arg(6) * @const("PAGE_SIZE")
+	@_SYSCALL_MMAP2_ARGSTR
+}
+
+probe nd_syscall.mmap2.return = nd1_syscall.mmap2.return!, nd2_syscall.mmap2.return!, tp_syscall.mmap2.return
+  { }
+
+probe nd1_syscall.mmap2.return = kprobe.function("sys_mmap_pgoff").return ?
+{
+        @_SYSCALL_MMAP2_NAME
+        @SYSC_RETVALSTR2(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mmap2.return = kprobe.function(@arch_syscall_prefix "sys_mmap").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_mmap_pgoff").return ?
+{
+	@_SYSCALL_MMAP2_NAME
+	@SYSC_RETVALSTR2(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mmap2.return = __tp_syscall.mmap.return, __tp_syscall.mmap_pgoff.return
+{
+}
+probe __tp_syscall.mmap.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_mmap"))
+	@_SYSCALL_MMAP2_NAME
+	@SYSC_RETVALSTR2($ret)
+}
+probe __tp_syscall.mmap_pgoff.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mmap2"), @const("__NR_compat_mmap2"))
+	@_SYSCALL_MMAP2_NAME
+	@SYSC_RETVALSTR2($ret)
+}
+%)

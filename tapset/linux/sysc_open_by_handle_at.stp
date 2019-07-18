@@ -1,0 +1,119 @@
+# open_by_handle_at ___________________________________________
+#
+# SYSCALL_DEFINE3(open_by_handle_at, int, mountdirfd,
+#		struct file_handle __user *, handle,
+#		int, flags)
+# COMPAT_SYSCALL_DEFINE3(open_by_handle_at, int, mountdirfd,
+#			     struct file_handle __user *, handle, int, flags)
+
+@define _SYSCALL_OPEN_BY_HANDLE_AT_NAME
+%(
+	name = "open_by_handle_at"
+%)
+
+@define _SYSCALL_OPEN_BY_HANDLE_AT_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %s", mount_dfd_str, handle_uaddr, flags_str)
+%)
+
+@define _SYSCALL_OPEN_BY_HANDLE_AT_REGARGS
+%(
+	mount_dfd = int_arg(1)
+	mount_dfd_str = _dfd_str(mount_dfd)
+	handle_uaddr = pointer_arg(2)
+	flags = int_arg(3)
+	flags_str = _sys_open_flag_str(flags)
+%)
+
+probe syscall.open_by_handle_at = dw_syscall.open_by_handle_at !,
+                                  nd_syscall.open_by_handle_at ? {}
+probe syscall.open_by_handle_at.return = dw_syscall.open_by_handle_at.return !,
+                                         nd_syscall.open_by_handle_at.return ? {}
+
+# dw_open_by_handle_at _____________________________________________________
+
+probe dw_syscall.open_by_handle_at =
+	kernel.function("sys_open_by_handle_at").call ?,
+	kernel.function("compat_sys_open_by_handle_at").call ?
+{
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	mount_dfd = __int32($mountdirfd)
+	mount_dfd_str = _dfd_str(mount_dfd)
+	handle_uaddr = @__pointer($handle)
+	flags = __int32($flags)
+	flags_str = _sys_open_flag_str(flags)
+	@_SYSCALL_OPEN_BY_HANDLE_AT_ARGSTR
+}
+probe dw_syscall.open_by_handle_at.return =
+	kernel.function("sys_open_by_handle_at").return ?,
+	kernel.function("compat_sys_open_by_handle_at").return ?
+{
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_open_by_handle_at _____________________________________________________
+
+probe nd_syscall.open_by_handle_at = nd1_syscall.open_by_handle_at!, nd2_syscall.open_by_handle_at!, tp_syscall.open_by_handle_at
+  { }
+
+probe nd1_syscall.open_by_handle_at = kprobe.function("sys_open_by_handle_at") ?,
+	kprobe.function("compat_sys_open_by_handle_at") ?
+{
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	asmlinkage()
+	@_SYSCALL_OPEN_BY_HANDLE_AT_REGARGS
+	@_SYSCALL_OPEN_BY_HANDLE_AT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.open_by_handle_at =
+	kprobe.function(@arch_syscall_prefix "sys_open_by_handle_at") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_open_by_handle_at") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@_SYSCALL_OPEN_BY_HANDLE_AT_REGARGS
+	@_SYSCALL_OPEN_BY_HANDLE_AT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.open_by_handle_at = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_open_by_handle_at"),
+			       @const("__NR_compat_open_by_handle_at"))
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@_SYSCALL_OPEN_BY_HANDLE_AT_REGARGS
+	@_SYSCALL_OPEN_BY_HANDLE_AT_ARGSTR
+}
+
+probe nd_syscall.open_by_handle_at.return = nd1_syscall.open_by_handle_at.return!, nd2_syscall.open_by_handle_at.return!, tp_syscall.open_by_handle_at.return
+  { }
+  
+probe nd1_syscall.open_by_handle_at.return =
+	kprobe.function("sys_open_by_handle_at").return ?,
+	kprobe.function("compat_sys_open_by_handle_at").return ?
+{
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.open_by_handle_at.return =
+	kprobe.function(@arch_syscall_prefix "sys_open_by_handle_at").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_open_by_handle_at").return ?
+{
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.open_by_handle_at.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_open_by_handle_at"),
+			       @const("__NR_compat_open_by_handle_at"))
+	@_SYSCALL_OPEN_BY_HANDLE_AT_NAME
+	@SYSC_RETVALSTR($ret)
+}

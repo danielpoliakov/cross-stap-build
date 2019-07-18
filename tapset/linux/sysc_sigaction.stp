@@ -1,0 +1,183 @@
+# sigaction __________________________________________________
+# sys_sigaction(int sig, const struct old_sigaction __user *act, struct old_sigaction __user *oact)
+# sys32_sigaction(int sig, struct old_sigaction32 __user *act, struct old_sigaction32 __user *oact)
+#
+
+@define _SYSCALL_SIGACTION_NAME
+%(
+	name = "sigaction"
+%)
+
+@define _SYSCALL_SIGACTION_ARGSTR
+%(
+	argstr = sprintf("%s, {%s}, %p", sig_str, act_str, oact_uaddr)
+%)
+
+@define _SYSCALL_SIGACTION_REGARGS
+%(
+	sig = int_arg(1)
+	sig_str = _signal_name(sig)
+	act_uaddr = pointer_arg(2)
+	act_str = _struct_sigaction_u(act_uaddr)
+	oact_uaddr = pointer_arg(3)
+%)
+
+@define _SYSCALL_SIGACTION32_REGARGS
+%(
+	sig = int_arg(1)
+	sig_str = _signal_name(sig)
+	act_uaddr = pointer_arg(2)
+	act_str = _struct_old_sigaction32_u(act_uaddr)
+	oact_uaddr = pointer_arg(3)
+%)
+
+probe syscall.sigaction32 = dw_syscall.sigaction32 !, nd_syscall.sigaction32 ? {}
+
+probe syscall.sigaction = dw_syscall.sigaction !, nd_syscall.sigaction ? {}
+probe syscall.sigaction.return = dw_syscall.sigaction.return !,
+                                 nd_syscall.sigaction.return ? {}
+
+# dw_sigaction _____________________________________________________
+
+probe dw_syscall.sigaction = kernel.function("sys_sigaction").call ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	act_uaddr = @__pointer($act)
+	act_str = _struct_sigaction_u(act_uaddr)
+	oact_uaddr = $oact
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+probe dw_syscall.sigaction.return = kernel.function("sys_sigaction").return ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sigaction _____________________________________________________
+
+probe nd_syscall.sigaction = nd1_syscall.sigaction!, tp_syscall.sigaction
+  { }
+
+probe nd1_syscall.sigaction = kprobe.function("sys_sigaction") ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	%( arch != "powerpc" %? asmlinkage() %)
+	@_SYSCALL_SIGACTION_REGARGS
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaction = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_sigaction"))
+	@_SYSCALL_SIGACTION_NAME
+	@_SYSCALL_SIGACTION_REGARGS
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+
+probe nd_syscall.sigaction.return = nd1_syscall.sigaction.return!, tp_syscall.sigaction.return
+  { }
+
+probe nd1_syscall.sigaction.return = kprobe.function("sys_sigaction").return ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaction.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_sigaction"))
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# sigaction _________________________________________________________
+
+probe syscall.sigaction32.return = dw_syscall.sigaction32.return !,
+                                   nd_syscall.sigaction32.return ? {}
+
+# dw_sigaction32 _____________________________________________________
+
+probe dw_syscall.sigaction32 = kernel.function("sys32_sigaction").call ?,
+			    kernel.function("compat_sys_sigaction").call ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	act_uaddr = @__pointer($act)
+	act_str = _struct_old_sigaction32_u(act_uaddr)
+	oact_uaddr = $oact
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+probe dw_syscall.sigaction32.return = kernel.function("sys32_sigaction").return ?,
+				   kernel.function("compat_sys_sigaction").return ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sigaction32 _____________________________________________________
+
+probe nd_syscall.sigaction32 = nd1_syscall.sigaction32!, nd2_syscall.sigaction32!, tp_syscall.sigaction32
+  { }
+
+probe nd1_syscall.sigaction32 = kprobe.function("sys32_sigaction") ?,
+                                kprobe.function("compat_sys_sigaction") ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	asmlinkage()
+	@_SYSCALL_SIGACTION32_REGARGS
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigaction32 =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigaction") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SIGACTION_NAME
+	@_SYSCALL_SIGACTION32_REGARGS
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaction32 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_sigaction"))
+	@_SYSCALL_SIGACTION_NAME
+	@_SYSCALL_SIGACTION32_REGARGS
+	@_SYSCALL_SIGACTION_ARGSTR
+}
+
+probe nd_syscall.sigaction32.return = nd1_syscall.sigaction32.return!, nd2_syscall.sigaction32.return!, tp_syscall.sigaction32.return
+  { }
+
+probe nd1_syscall.sigaction32.return = kprobe.function("sys32_sigaction").return ?,
+                                       kprobe.function("compat_sys_sigaction").return ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sigaction32.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_sigaction").return ?
+{
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sigaction32.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_sigaction"))
+	@_SYSCALL_SIGACTION_NAME
+	@SYSC_RETVALSTR($ret)
+}

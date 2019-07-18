@@ -1,0 +1,92 @@
+# getsid _____________________________________________________
+# long sys_getsid(pid_t pid)
+
+@define _SYSCALL_GETSID_NAME
+%(
+	name = "getsid"
+%)
+
+@define _SYSCALL_GETSID_ARGSTR
+%(
+	argstr = sprint(pid)
+%)
+
+@define _SYSCALL_GETSID_REGARGS
+%(
+	pid = int_arg(1)
+%)
+
+probe syscall.getsid = dw_syscall.getsid !, nd_syscall.getsid ? {}
+probe syscall.getsid.return = dw_syscall.getsid.return !,
+                              nd_syscall.getsid.return ? {}
+
+# dw_getsid _____________________________________________________
+
+probe dw_syscall.getsid = kernel.function("sys_getsid").call
+{
+	@_SYSCALL_GETSID_NAME
+	pid = __int32($pid)
+	@_SYSCALL_GETSID_ARGSTR
+}
+probe dw_syscall.getsid.return = kernel.function("sys_getsid").return
+{
+	@_SYSCALL_GETSID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getsid _____________________________________________________
+
+probe nd_syscall.getsid = nd1_syscall.getsid!, nd2_syscall.getsid!, tp_syscall.getsid
+  { }
+
+probe nd1_syscall.getsid = kprobe.function("sys_getsid") ?
+{
+	@_SYSCALL_GETSID_NAME
+	asmlinkage()
+	@_SYSCALL_GETSID_REGARGS
+	@_SYSCALL_GETSID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getsid = kprobe.function(@arch_syscall_prefix "sys_getsid") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETSID_NAME
+	@_SYSCALL_GETSID_REGARGS
+	@_SYSCALL_GETSID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getsid = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getsid"), @const("__NR_compat_getsid"))
+	@_SYSCALL_GETSID_NAME
+	@_SYSCALL_GETSID_REGARGS
+	@_SYSCALL_GETSID_ARGSTR
+}
+
+probe nd_syscall.getsid.return = nd1_syscall.getsid.return!, nd2_syscall.getsid.return!, tp_syscall.getsid.return
+  { }
+  
+probe nd1_syscall.getsid.return = kprobe.function("sys_getsid").return ?
+{
+	@_SYSCALL_GETSID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getsid.return = kprobe.function(@arch_syscall_prefix "sys_getsid").return ?
+{
+	@_SYSCALL_GETSID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getsid.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getsid"), @const("__NR_compat_getsid"))
+	@_SYSCALL_GETSID_NAME
+	@SYSC_RETVALSTR($ret)
+}

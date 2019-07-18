@@ -1,0 +1,104 @@
+# capget _____________________________________________________
+/*
+ *  NOTE
+ *   this  is  probably not a good function
+ *   to probe. The  structures  are  always
+ *   changing.  It also  seems  like  it is
+ *   not really  used. Cscope  produced  no
+ *   reference  of  this  function  in  the
+ *   kernel  (returned no callers). Perhaps
+ *   cap_get_proc / cap_set_proc are better
+ *   functions to export.
+ */
+# long sys_capget(cap_user_header_t header, cap_user_data_t dataptr)
+
+@define _SYSCALL_CAPGET_NAME
+%(
+	name = "capget"
+%)
+
+@define _SYSCALL_CAPGET_ARGSTR
+%(
+	argstr = sprintf("%p, %p", header_uaddr, data_uaddr)
+%)
+
+@define _SYSCALL_CAPGET_REGARGS
+%(
+	header_uaddr = pointer_arg(1)
+	data_uaddr = pointer_arg(2)
+%)
+
+probe syscall.capget = dw_syscall.capget !, nd_syscall.capget ? {}
+probe syscall.capget.return = dw_syscall.capget.return !, nd_syscall.capget.return ? {}
+
+# dw_capget _____________________________________________________
+
+probe dw_syscall.capget = kernel.function("sys_capget").call
+{
+	@_SYSCALL_CAPGET_NAME
+	header_uaddr = $header
+	data_uaddr = $dataptr
+	@_SYSCALL_CAPGET_ARGSTR
+}
+probe dw_syscall.capget.return = kernel.function("sys_capget").return
+{
+	@_SYSCALL_CAPGET_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_capget _____________________________________________________
+
+probe nd_syscall.capget = nd1_syscall.capget!, nd2_syscall.capget!, tp_syscall.capget
+  { }
+
+probe nd1_syscall.capget = kprobe.function("sys_capget") ?
+{
+	@_SYSCALL_CAPGET_NAME
+	asmlinkage()
+	@_SYSCALL_CAPGET_REGARGS
+	@_SYSCALL_CAPGET_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.capget = kprobe.function(@arch_syscall_prefix "sys_capget")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CAPGET_NAME
+	@_SYSCALL_CAPGET_REGARGS
+	@_SYSCALL_CAPGET_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.capget = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_capget"), @const("__NR_compat_capget"))
+	@_SYSCALL_CAPGET_NAME
+	@_SYSCALL_CAPGET_REGARGS
+	@_SYSCALL_CAPGET_ARGSTR
+}
+
+probe nd_syscall.capget.return = nd1_syscall.capget.return!, nd2_syscall.capget.return!, tp_syscall.capget.return
+  { }
+
+probe nd1_syscall.capget.return = kprobe.function("sys_capget").return ?
+{
+	@_SYSCALL_CAPGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.capget.return = kprobe.function(@arch_syscall_prefix "sys_capget").return
+{
+	@_SYSCALL_CAPGET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.capget.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_capget"), @const("__NR_compat_capget"))
+	@_SYSCALL_CAPGET_NAME
+	@SYSC_RETVALSTR($ret)
+}

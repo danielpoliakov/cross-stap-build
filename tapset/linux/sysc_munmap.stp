@@ -1,0 +1,94 @@
+# munmap _____________________________________________________
+# long sys_munmap(unsigned long addr, size_t len)
+
+@define _SYSCALL_MUNMAP_NAME
+%(
+	name = "munmap"
+%)
+
+@define _SYSCALL_MUNMAP_ARGSTR
+%(
+	argstr = sprintf("%p, %u", start, length)
+%)
+
+@define _SYSCALL_MUNMAP_REGARGS
+%(
+	start = ulong_arg(1)
+	length = ulong_arg(2)
+%)
+
+probe syscall.munmap = dw_syscall.munmap !, nd_syscall.munmap ? {}
+probe syscall.munmap.return = dw_syscall.munmap.return !,
+                              nd_syscall.munmap.return ? {}
+
+# dw_munmap _____________________________________________________
+
+probe dw_syscall.munmap = kernel.function("sys_munmap").call
+{
+	@_SYSCALL_MUNMAP_NAME
+	start = $addr
+	length = __ulong($len)
+	@_SYSCALL_MUNMAP_ARGSTR
+}
+probe dw_syscall.munmap.return = kernel.function("sys_munmap").return
+{
+	@_SYSCALL_MUNMAP_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_munmap _____________________________________________________
+
+probe nd_syscall.munmap = nd1_syscall.munmap!, nd2_syscall.munmap!, tp_syscall.munmap
+  { }
+
+probe nd1_syscall.munmap = kprobe.function("sys_munmap") ?
+{
+	@_SYSCALL_MUNMAP_NAME
+	asmlinkage()
+	@_SYSCALL_MUNMAP_REGARGS
+	@_SYSCALL_MUNMAP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.munmap = kprobe.function(@arch_syscall_prefix "sys_munmap") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MUNMAP_NAME
+	@_SYSCALL_MUNMAP_REGARGS
+	@_SYSCALL_MUNMAP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.munmap = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_munmap"), @const("__NR_compat_munmap"))
+	@_SYSCALL_MUNMAP_NAME
+	@_SYSCALL_MUNMAP_REGARGS
+	@_SYSCALL_MUNMAP_ARGSTR
+}
+
+probe nd_syscall.munmap.return = nd1_syscall.munmap.return!, nd2_syscall.munmap.return!, tp_syscall.munmap.return
+  { }
+  
+probe nd1_syscall.munmap.return = kprobe.function("sys_munmap").return ?
+{
+	@_SYSCALL_MUNMAP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.munmap.return = kprobe.function(@arch_syscall_prefix "sys_munmap").return ?
+{
+	@_SYSCALL_MUNMAP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.munmap.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_munmap"), @const("__NR_compat_munmap"))
+	@_SYSCALL_MUNMAP_NAME
+	@SYSC_RETVALSTR($ret)
+}

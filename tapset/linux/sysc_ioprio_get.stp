@@ -1,0 +1,97 @@
+# ioprio_get _________________________________________________
+# long sys_ioprio_get(int which, int who)
+#
+
+@define _SYSCALL_IOPRIO_GET_NAME
+%(
+	name = "ioprio_get"
+%)
+
+@define _SYSCALL_IOPRIO_GET_ARGSTR
+%(
+	argstr = sprintf("%s, %d", which_str, who)
+%)
+
+@define _SYSCALL_IOPRIO_GET_REGARGS
+%(
+	which = int_arg(1)
+	which_str = _stp_ioprio_which_str(which)
+	who = int_arg(2)
+%)
+
+probe syscall.ioprio_get = dw_syscall.ioprio_get !, nd_syscall.ioprio_get ? {}
+probe syscall.ioprio_get.return = dw_syscall.ioprio_get.return !,
+                                  nd_syscall.ioprio_get.return ? {}
+
+# dw_ioprio_get _____________________________________________________
+
+probe dw_syscall.ioprio_get = kernel.function("sys_ioprio_get").call ?
+{
+	@_SYSCALL_IOPRIO_GET_NAME
+	which = __int32($which)
+	which_str = _stp_ioprio_which_str(__int32($which))
+	who = __int32($who)
+	@_SYSCALL_IOPRIO_GET_ARGSTR
+}
+probe dw_syscall.ioprio_get.return = kernel.function("sys_ioprio_get").return ?
+{
+	@_SYSCALL_IOPRIO_GET_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_ioprio_get _____________________________________________________
+
+probe nd_syscall.ioprio_get = nd1_syscall.ioprio_get!, nd2_syscall.ioprio_get!, tp_syscall.ioprio_get
+  { }
+
+probe nd1_syscall.ioprio_get = kprobe.function("sys_ioprio_get") ?
+{
+	@_SYSCALL_IOPRIO_GET_NAME
+	asmlinkage()
+	@_SYSCALL_IOPRIO_GET_REGARGS
+	@_SYSCALL_IOPRIO_GET_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ioprio_get = kprobe.function(@arch_syscall_prefix "sys_ioprio_get") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_IOPRIO_GET_NAME
+	@_SYSCALL_IOPRIO_GET_REGARGS
+	@_SYSCALL_IOPRIO_GET_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ioprio_get = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ioprio_get"), @const("__NR_compat_ioprio_get"))
+	@_SYSCALL_IOPRIO_GET_NAME
+	@_SYSCALL_IOPRIO_GET_REGARGS
+	@_SYSCALL_IOPRIO_GET_ARGSTR
+}
+
+probe nd_syscall.ioprio_get.return = nd1_syscall.ioprio_get.return!, nd2_syscall.ioprio_get.return!, tp_syscall.ioprio_get.return
+  { }
+
+probe nd1_syscall.ioprio_get.return = kprobe.function("sys_ioprio_get").return ?
+{
+	@_SYSCALL_IOPRIO_GET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.ioprio_get.return = kprobe.function(@arch_syscall_prefix "sys_ioprio_get").return ?
+{
+	@_SYSCALL_IOPRIO_GET_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.ioprio_get.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_ioprio_get"), @const("__NR_compat_ioprio_get"))
+	@_SYSCALL_IOPRIO_GET_NAME
+	@SYSC_RETVALSTR($ret)
+}

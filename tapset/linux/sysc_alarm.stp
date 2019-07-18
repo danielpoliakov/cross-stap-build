@@ -1,0 +1,97 @@
+# alarm ______________________________________________________
+# unsigned long sys_alarm (unsigned int seconds)
+# long sys32_alarm(unsigned int seconds)
+#
+
+@define _SYSCALL_ALARM_NAME
+%(
+	name = "alarm"
+%)
+
+@define _SYSCALL_ALARM_ARGSTR
+%(
+	argstr = sprint(seconds)
+%)
+
+@define _SYSCALL_ALARM_REGARGS
+%(
+	seconds = uint_arg(1)
+%)
+
+probe syscall.alarm = dw_syscall.alarm !, nd_syscall.alarm ? {}
+probe syscall.alarm.return = dw_syscall.alarm.return !, nd_syscall.alarm.return ? {}
+
+# dw_alarm _____________________________________________________
+
+probe dw_syscall.alarm = kernel.function("sys32_alarm").call ?,
+                      kernel.function("sys_alarm").call ?
+{
+	@_SYSCALL_ALARM_NAME
+	seconds = __uint32($seconds)
+	@_SYSCALL_ALARM_ARGSTR
+}
+probe dw_syscall.alarm.return = kernel.function("sys32_alarm").return ?,
+                             kernel.function("sys_alarm").return ?
+{
+	@_SYSCALL_ALARM_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_alarm _____________________________________________________
+
+probe nd_syscall.alarm = nd1_syscall.alarm!, nd2_syscall.alarm!, tp_syscall.alarm
+  { }
+
+probe nd1_syscall.alarm = kprobe.function("sys32_alarm") ?,
+                          kprobe.function("sys_alarm") ?
+{
+	@_SYSCALL_ALARM_NAME
+	asmlinkage()
+	@_SYSCALL_ALARM_REGARGS
+	@_SYSCALL_ALARM_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.alarm = kprobe.function(@arch_syscall_prefix "sys_alarm") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_ALARM_NAME
+	@_SYSCALL_ALARM_REGARGS
+	@_SYSCALL_ALARM_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.alarm = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_alarm"), @const("__NR_compat_alarm"))
+	@_SYSCALL_ALARM_NAME
+	@_SYSCALL_ALARM_REGARGS
+	@_SYSCALL_ALARM_ARGSTR
+}
+
+probe nd_syscall.alarm.return = nd1_syscall.alarm.return!, nd2_syscall.alarm.return!, tp_syscall.alarm.return
+  { }
+  
+probe nd1_syscall.alarm.return = kprobe.function("sys32_alarm").return ?,
+                                 kprobe.function("sys_alarm").return ?
+{
+	@_SYSCALL_ALARM_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.alarm.return = kprobe.function(@arch_syscall_prefix "sys_alarm").return ?
+{
+	@_SYSCALL_ALARM_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.alarm.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_alarm"), @const("__NR_compat_alarm"))
+	@_SYSCALL_ALARM_NAME
+	@SYSC_RETVALSTR($ret)
+}

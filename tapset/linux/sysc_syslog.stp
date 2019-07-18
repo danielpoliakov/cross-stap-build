@@ -1,0 +1,98 @@
+# syslog _____________________________________________________
+#
+# long sys_syslog(int type, char __user * buf, int len)
+#
+
+@define _SYSCALL_SYSLOG_NAME
+%(
+	name = "syslog"
+%)
+
+@define _SYSCALL_SYSLOG_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %d", type, bufp_uaddr, len)
+%)
+
+@define _SYSCALL_SYSLOG_REGARGS
+%(
+	type = int_arg(1)
+	bufp_uaddr = pointer_arg(2)
+	len = int_arg(3)
+%)
+
+probe syscall.syslog = dw_syscall.syslog !, nd_syscall.syslog ? {}
+probe syscall.syslog.return = dw_syscall.syslog.return !,
+                              nd_syscall.syslog.return ? {}
+
+# dw_syslog _____________________________________________________
+
+probe dw_syscall.syslog = kernel.function("sys_syslog").call
+{
+	@_SYSCALL_SYSLOG_NAME
+	type = __int32($type)
+	bufp_uaddr = $buf
+	len = __int32($len)
+	@_SYSCALL_SYSLOG_ARGSTR
+}
+probe dw_syscall.syslog.return = kernel.function("sys_syslog").return
+{
+	@_SYSCALL_SYSLOG_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_syslog _____________________________________________________
+
+probe nd_syscall.syslog = nd1_syscall.syslog!, nd2_syscall.syslog!, tp_syscall.syslog
+  { }
+
+probe nd1_syscall.syslog = kprobe.function("sys_syslog") ?
+{
+	@_SYSCALL_SYSLOG_NAME
+	asmlinkage()
+	@_SYSCALL_SYSLOG_REGARGS
+	@_SYSCALL_SYSLOG_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.syslog = kprobe.function(@arch_syscall_prefix "sys_syslog") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SYSLOG_NAME
+	@_SYSCALL_SYSLOG_REGARGS
+	@_SYSCALL_SYSLOG_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.syslog = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_syslog"), @const("__NR_compat_syslog"))
+	@_SYSCALL_SYSLOG_NAME
+	@_SYSCALL_SYSLOG_REGARGS
+	@_SYSCALL_SYSLOG_ARGSTR
+}
+
+probe nd_syscall.syslog.return = nd1_syscall.syslog.return!, nd2_syscall.syslog.return!, tp_syscall.syslog.return
+  { }
+
+probe nd1_syscall.syslog.return = kprobe.function("sys_syslog").return ?
+{
+	@_SYSCALL_SYSLOG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.syslog.return = kprobe.function(@arch_syscall_prefix "sys_syslog").return ?
+{
+	@_SYSCALL_SYSLOG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.syslog.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_syslog"), @const("__NR_compat_syslog"))
+	@_SYSCALL_SYSLOG_NAME
+	@SYSC_RETVALSTR($ret)
+}

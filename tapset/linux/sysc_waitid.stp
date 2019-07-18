@@ -1,0 +1,139 @@
+# waitid _____________________________________________________
+#
+# long sys_waitid(int which,
+#		pid_t pid,
+#		struct siginfo __user *infop,
+#		int options,
+#		struct rusage __user *ru)
+# COMPAT_SYSCALL_DEFINE5(waitid,
+#		int, which, compat_pid_t, pid,
+#		struct compat_siginfo __user *, uinfo, int, options,
+#		struct compat_rusage __user *, uru)
+#
+
+@define _SYSCALL_WAITID_NAME
+%(
+	name = "waitid"
+%)
+
+@define _SYSCALL_WAITID_ARGSTR
+%(
+	argstr = sprintf("%s, %d, %p, %s, %p", which_str, pid, infop_uaddr,
+	                 options_str, rusage_uaddr)
+%)
+
+@define _SYSCALL_WAITID_REGARGS
+%(
+	which = int_arg(1)
+	which_str = _waitid_which_str(which)
+	pid = int_arg(2)
+	infop_uaddr = pointer_arg(3)
+	options = int_arg(4)
+	options_str = _wait4_opt_str(options)
+	rusage_uaddr = pointer_arg(5)
+%)
+
+probe syscall.waitid = dw_syscall.waitid !, nd_syscall.waitid ? {}
+probe syscall.waitid.return = dw_syscall.waitid.return !,
+                              nd_syscall.waitid.return ? {}
+
+# dw_waitid _____________________________________________________
+
+probe dw_syscall.waitid = __syscall.waitid,
+	kernel.function("compat_sys_waitid").call ?
+{
+	@_SYSCALL_WAITID_NAME
+	which = __int32($which)
+	which_str = _waitid_which_str(__int32($which))
+	pid = __int32(@choose_defined($upid, $pid))
+	infop_uaddr = @__pointer(@choose_defined($infop, $uinfo))
+	options = $options
+	options_str = _wait4_opt_str($options)
+	rusage_uaddr = @choose_defined($ru, $uru)
+	@_SYSCALL_WAITID_ARGSTR
+}
+probe __syscall.waitid = kernel.function("sys_waitid").call
+{
+	@__syscall_gate_compat_simple
+}
+probe dw_syscall.waitid.return = __syscall.waitid.return,
+	kernel.function("compat_sys_waitid").return ?
+{
+	@_SYSCALL_WAITID_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.waitid.return = kernel.function("sys_waitid").return
+{
+	@__syscall_gate_compat_simple
+}
+
+# nd_waitid _____________________________________________________
+
+probe nd_syscall.waitid = nd1_syscall.waitid!, nd2_syscall.waitid!, tp_syscall.waitid
+  { }
+
+probe nd1_syscall.waitid = __nd1_syscall.waitid,
+	kprobe.function("compat_sys_waitid") ?
+{
+	@_SYSCALL_WAITID_NAME
+	asmlinkage()
+	@_SYSCALL_WAITID_REGARGS
+	@_SYSCALL_WAITID_ARGSTR
+}
+probe __nd1_syscall.waitid = kprobe.function("sys_waitid")
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.waitid =
+	kprobe.function(@arch_syscall_prefix "sys_waitid") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_waitid") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_WAITID_NAME
+	@_SYSCALL_WAITID_REGARGS
+	@_SYSCALL_WAITID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.waitid = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_waitid"), @const("__NR_compat_waitid"))
+	@_SYSCALL_WAITID_NAME
+	@_SYSCALL_WAITID_REGARGS
+	@_SYSCALL_WAITID_ARGSTR
+}
+
+probe nd_syscall.waitid.return = nd1_syscall.waitid.return!, nd2_syscall.waitid.return!, tp_syscall.waitid.return
+  { }
+
+probe nd1_syscall.waitid.return = __nd1_syscall.waitid.return,
+	kprobe.function("compat_sys_waitid").return ?
+{
+	@_SYSCALL_WAITID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.waitid.return = kprobe.function("sys_waitid").return
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.waitid.return =
+	kprobe.function(@arch_syscall_prefix "sys_waitid").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_waitid").return ?
+{
+	@_SYSCALL_WAITID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.waitid.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_waitid"), @const("__NR_compat_waitid"))
+	@_SYSCALL_WAITID_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,92 @@
+# nice _______________________________________________________
+# long sys_nice(int increment)
+#
+
+@define _SYSCALL_NICE_NAME
+%(
+	name = "nice"
+%)
+
+@define _SYSCALL_NICE_ARGSTR
+%(
+	argstr = sprintf("%d", inc)
+%)
+
+@define _SYSCALL_NICE_REGARGS
+%(
+	inc = int_arg(1)
+%)
+
+probe syscall.nice = dw_syscall.nice !, nd_syscall.nice ? {}
+probe syscall.nice.return = dw_syscall.nice.return !, nd_syscall.nice.return ? {}
+
+# dw_nice _____________________________________________________
+
+probe dw_syscall.nice = kernel.function("sys_nice").call ?
+{
+	@_SYSCALL_NICE_NAME
+	inc = __int32($increment)
+	@_SYSCALL_NICE_ARGSTR
+}
+probe dw_syscall.nice.return = kernel.function("sys_nice").return ?
+{
+	@_SYSCALL_NICE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_nice _____________________________________________________
+
+probe nd_syscall.nice = nd1_syscall.nice!, nd2_syscall.nice!, tp_syscall.nice
+  { }
+
+probe nd1_syscall.nice = kprobe.function("sys_nice") ?
+{
+	@_SYSCALL_NICE_NAME
+	asmlinkage()
+	@_SYSCALL_NICE_REGARGS
+	@_SYSCALL_NICE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.nice = kprobe.function(@arch_syscall_prefix "sys_nice") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_NICE_NAME
+	@_SYSCALL_NICE_REGARGS
+	@_SYSCALL_NICE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.nice = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_nice"), @const("__NR_compat_nice"))
+	@_SYSCALL_NICE_NAME
+	@_SYSCALL_NICE_REGARGS
+	@_SYSCALL_NICE_ARGSTR
+}
+
+probe nd_syscall.nice.return = nd1_syscall.nice.return!, nd2_syscall.nice.return!, tp_syscall.nice.return
+  { }
+  
+probe nd1_syscall.nice.return = kprobe.function("sys_nice").return ?
+{
+	@_SYSCALL_NICE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.nice.return = kprobe.function(@arch_syscall_prefix "sys_nice").return ?
+{
+	@_SYSCALL_NICE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.nice.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_nice"), @const("__NR_compat_nice"))
+	@_SYSCALL_NICE_NAME
+	@SYSC_RETVALSTR($ret)
+}

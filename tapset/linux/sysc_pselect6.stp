@@ -1,0 +1,198 @@
+# pselect6 _____________________________________________________
+#
+# long sys_pselect6(int n, fd_set __user *inp, fd_set __user *outp,
+#	fd_set __user *exp, struct timespec __user *tsp, void __user *sig)
+#
+
+@define _SYSCALL_PSELECT6_NAME
+%(
+	name = "pselect6"
+%)
+
+@define _SYSCALL_PSELECT6_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %p, %p, %s, %p", nfds, readfds, writefds,
+	                 exceptfds, timeout_str, sigmask)
+%)
+
+@define _SYSCALL_PSELECT6_REGARGS
+%(
+	nfds = int_arg(1)
+	readfds = pointer_arg(2)
+	writefds = pointer_arg(3)
+	exceptfds = pointer_arg(4)
+	timeout = pointer_arg(5)
+	sigmask = pointer_arg(6)
+%)
+
+probe syscall.pselect6 = dw_syscall.pselect6 !, nd_syscall.pselect6 ? {}
+probe syscall.pselect6.return = dw_syscall.pselect6.return !,
+                                nd_syscall.pselect6.return ? {}
+
+# dw_pselect6 _____________________________________________________
+
+probe dw_syscall.pselect6 = kernel.function("sys_pselect6").call ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	nfds = __int32($n)
+	readfds = $inp
+	writefds = $outp
+	exceptfds = $exp
+	timeout = $tsp
+	timeout_str = _struct_timespec_u(timeout, 1)
+	sigmask = $sig
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+probe dw_syscall.pselect6.return = kernel.function("sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pselect6 _____________________________________________________
+
+probe nd_syscall.pselect6 = nd1_syscall.pselect6!, nd2_syscall.pselect6!, tp_syscall.pselect6
+  { }
+
+probe nd1_syscall.pselect6 = kprobe.function("sys_pselect6") ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	asmlinkage()
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pselect6 = kprobe.function(@arch_syscall_prefix "sys_pselect6") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PSELECT6_NAME
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pselect6 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_pselect6"))
+	@_SYSCALL_PSELECT6_NAME
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+probe nd_syscall.pselect6.return = nd1_syscall.pselect6.return!, nd2_syscall.pselect6.return!, tp_syscall.pselect6.return
+  { }
+
+probe nd1_syscall.pselect6.return = kprobe.function("sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pselect6.return = kprobe.function(@arch_syscall_prefix "sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pselect6.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_pselect6"))
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# pselect6 _____________________________________________________
+#
+# long sys_pselect6(int n, fd_set __user *inp, fd_set __user *outp,
+#	fd_set __user *exp, struct timespec __user *tsp, void __user *sig)
+#
+
+probe syscall.compat_pselect6 = dw_syscall.compat_pselect6 !, nd_syscall.compat_pselect6 ? {}
+probe syscall.compat_pselect6.return = dw_syscall.compat_pselect6.return !,
+                                       nd_syscall.compat_pselect6.return ? {}
+
+# dw_compat_pselect6 _____________________________________________________
+
+probe dw_syscall.compat_pselect6 = kernel.function("compat_sys_pselect6").call ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	nfds = __int32($n)
+	readfds = @__pointer($inp)
+	writefds = @__pointer($outp)
+	exceptfds = @__pointer($exp)
+	timeout = @__pointer($tsp)
+	timeout_str = _struct_compat_timespec_u(timeout, 1)
+	sigmask = @__pointer($sig)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+probe dw_syscall.compat_pselect6.return = kernel.function("compat_sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_pselect6 _____________________________________________________
+
+probe nd_syscall.compat_pselect6 = nd1_syscall.compat_pselect6!, nd2_syscall.compat_pselect6!, tp_syscall.compat_pselect6
+  { }
+
+probe nd1_syscall.compat_pselect6 = kprobe.function("compat_sys_pselect6") ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	asmlinkage()
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+probe nd2_syscall.compat_pselect6 = kprobe.function(@arch_syscall_prefix "compat_sys_pselect6") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PSELECT6_NAME
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+probe tp_syscall.compat_pselect6 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_pselect6"))
+	@_SYSCALL_PSELECT6_NAME
+	@_SYSCALL_PSELECT6_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout, 1)
+	@_SYSCALL_PSELECT6_ARGSTR
+}
+
+probe nd_syscall.compat_pselect6.return = nd1_syscall.compat_pselect6.return!, nd2_syscall.compat_pselect6.return!, tp_syscall.compat_pselect6.return
+  { }
+
+probe nd1_syscall.compat_pselect6.return = kprobe.function("compat_sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_pselect6.return = kprobe.function(@arch_syscall_prefix "compat_sys_pselect6").return ?
+{
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_pselect6.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_pselect6"))
+	@_SYSCALL_PSELECT6_NAME
+	@SYSC_RETVALSTR($ret)
+}

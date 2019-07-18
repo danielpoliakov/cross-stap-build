@@ -1,0 +1,134 @@
+# getgroups __________________________________________________
+# long sys_getgroups(int gidsetsize, gid_t __user *grouplist)
+# long sys_getgroups16(int gidsetsize, old_gid_t __user *grouplist)
+# long sys32_getgroups16(int gidsetsize, u16 __user *grouplist)
+#
+
+@define _SYSCALL_GETGROUPS_NAME
+%(
+	name = "getgroups"
+%)
+
+@define _SYSCALL_GETGROUPS_ARGSTR
+%(
+	argstr = sprintf("%d, %p", size, list_uaddr)
+%)
+
+@define _SYSCALL_GETGROUPS_REGARGS
+%(
+	size = int_arg(1)
+	list_uaddr = pointer_arg(2)
+%)
+
+probe syscall.getgroups = dw_syscall.getgroups !, nd_syscall.getgroups ? {}
+probe syscall.getgroups.return = dw_syscall.getgroups.return !, nd_syscall.getgroups.return ? {}
+
+# dw_getgroups _____________________________________________________
+
+probe dw_syscall.getgroups = kernel.function("sys_getgroups16").call ?,
+	kernel.function("sys32_getgroups16").call ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_getgroups16").call ?,
+%)
+	kernel.function("sys_getgroups").call ?
+{
+	@_SYSCALL_GETGROUPS_NAME
+	size = __int32($gidsetsize)
+	list_uaddr = $grouplist
+	@_SYSCALL_GETGROUPS_ARGSTR
+}
+probe dw_syscall.getgroups.return =
+	kernel.function("sys_getgroups16").return ?,
+	kernel.function("sys32_getgroups16").return ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_getgroups16").return ?,
+%)
+	kernel.function("sys_getgroups").return ?
+{
+	@_SYSCALL_GETGROUPS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getgroups _____________________________________________________
+
+probe nd_syscall.getgroups = nd1_syscall.getgroups!, nd2_syscall.getgroups!, tp_syscall.getgroups
+  { }
+
+probe nd1_syscall.getgroups = kprobe.function("sys_getgroups16") ?,
+	kprobe.function("sys32_getgroups16") ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_getgroups16") ?,
+%)
+	kprobe.function("sys_getgroups") ?
+{
+	@_SYSCALL_GETGROUPS_NAME
+	asmlinkage()
+	@_SYSCALL_GETGROUPS_REGARGS
+	@_SYSCALL_GETGROUPS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getgroups = kprobe.function(@arch_syscall_prefix "sys_getgroups16") ?,
+	kprobe.function(@arch_syscall_prefix "sys_getgroups") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETGROUPS_NAME
+	@_SYSCALL_GETGROUPS_REGARGS
+	@_SYSCALL_GETGROUPS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getgroups = __tp_syscall.getgroups, __tp_syscall.getgroups32
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETGROUPS_NAME
+	@_SYSCALL_GETGROUPS_REGARGS
+	@_SYSCALL_GETGROUPS_ARGSTR
+}
+probe __tp_syscall.getgroups = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getgroups"), @const("__NR_compat_getgroups"))
+}
+probe __tp_syscall.getgroups32 = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getgroups32"), @const("__NR_compat_getgroups32"))
+}
+
+probe nd_syscall.getgroups.return = nd1_syscall.getgroups.return!, nd2_syscall.getgroups.return!, tp_syscall.getgroups.return
+  { }
+  
+probe nd1_syscall.getgroups.return =
+	kprobe.function("sys_getgroups16").return ?,
+	kprobe.function("sys32_getgroups16").return ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_getgroups16").return ?,
+%)
+	kprobe.function("sys_getgroups").return ?
+{
+	@_SYSCALL_GETGROUPS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getgroups.return = kprobe.function(@arch_syscall_prefix "sys_getgroups16").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_getgroups").return ?
+{
+	@_SYSCALL_GETGROUPS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getgroups.return = __tp_syscall.getgroups.return, __tp_syscall.getgroups32.return 
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETGROUPS_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.getgroups.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_getgroups"), @const("__NR_compat_getgroups"))
+}
+probe __tp_syscall.getgroups32.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_getgroups32"), @const("__NR_compat_getgroups32"))
+}

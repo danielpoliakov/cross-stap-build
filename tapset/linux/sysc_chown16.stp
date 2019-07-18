@@ -1,0 +1,105 @@
+# chown16 ___________________________________________________
+# long sys_chown16(const char __user * filename, old_uid_t user,
+#			old_gid_t group)
+#
+
+@define _SYSCALL_CHOWN16_NAME
+%(
+	name = "chown16"
+%)
+
+@define _SYSCALL_CHOWN16_ARGSTR
+%(
+	argstr = sprintf("%s, %d, %d", path, owner, group)
+%)
+
+@define _SYSCALL_CHOWN16_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	owner = __short(uint_arg(2))
+	group = __short(uint_arg(3))
+%)
+
+probe syscall.chown16 = dw_syscall.chown16 !, nd_syscall.chown16 ? {}
+probe syscall.chown16.return = dw_syscall.chown16.return !, nd_syscall.chown16.return ? {}
+
+# dw_chown16 _____________________________________________________
+
+probe dw_syscall.chown16 = kernel.function("sys_chown16").call ?
+{
+	@_SYSCALL_CHOWN16_NAME
+	path = user_string_quoted($filename)
+	owner = __short($user)
+	group = __short($group)
+	@_SYSCALL_CHOWN16_ARGSTR
+}
+probe dw_syscall.chown16.return = kernel.function("sys_chown16").return ?
+{
+	@_SYSCALL_CHOWN16_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_chown16 _____________________________________________________
+
+probe nd_syscall.chown16 = nd1_syscall.chown16!, nd2_syscall.chown16!, tp_syscall.chown16
+  { }
+
+probe nd1_syscall.chown16 = kprobe.function("sys_chown16") ?
+{
+	@_SYSCALL_CHOWN16_NAME
+	asmlinkage()
+	@_SYSCALL_CHOWN16_REGARGS
+	@_SYSCALL_CHOWN16_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chown16 = kprobe.function(@arch_syscall_prefix "sys_chown16") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CHOWN16_NAME
+	@_SYSCALL_CHOWN16_REGARGS
+	@_SYSCALL_CHOWN16_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chown16 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__compat_syscall_gate(@const("__NR_compat_chown"))
+%:
+	@__syscall_gate(@const("__NR_chown"))
+%)
+	@_SYSCALL_CHOWN16_NAME
+	@_SYSCALL_CHOWN16_REGARGS
+	@_SYSCALL_CHOWN16_ARGSTR
+}
+
+probe nd_syscall.chown16.return = nd1_syscall.chown16.return!, nd2_syscall.chown16.return!, tp_syscall.chown16.return
+  { }
+  
+probe nd1_syscall.chown16.return = kprobe.function("sys_chown16").return ?
+{
+	@_SYSCALL_CHOWN16_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chown16.return = kprobe.function(@arch_syscall_prefix "sys_chown16").return ?
+{
+	@_SYSCALL_CHOWN16_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chown16.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__compat_syscall_gate(@const("__NR_compat_chown"))
+%:
+	@__syscall_gate(@const("__NR_chown"))
+%)
+	@_SYSCALL_CHOWN16_NAME
+	@SYSC_RETVALSTR($ret)
+}

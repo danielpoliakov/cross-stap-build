@@ -1,0 +1,95 @@
+# setns ______________________________________________________
+# SYSCALL_DEFINE2(setns, int, fd, int, nstype)
+
+@define _SYSCALL_SETNS_NAME
+%(
+	name = "setns"
+%)
+
+@define _SYSCALL_SETNS_ARGSTR
+%(
+	argstr = sprintf("%d, %s", fd, nstype_str);
+%)
+
+@define _SYSCALL_SETNS_REGARGS
+%(
+	fd = int_arg(1)
+	nstype = int_arg(2)
+	nstype_str = __fork_flags(nstype)
+%)
+
+probe syscall.setns = dw_syscall.setns !, nd_syscall.setns ? {}
+probe syscall.setns.return = dw_syscall.setns.return !, nd_syscall.setns.return ? {}
+
+# dw_setns _____________________________________________________
+
+probe dw_syscall.setns = kernel.function("sys_setns") ?
+{
+	@_SYSCALL_SETNS_NAME
+	fd = __int32($fd)
+	nstype = __int32($nstype)
+	nstype_str = __fork_flags(nstype)
+	@_SYSCALL_SETNS_ARGSTR
+}
+probe dw_syscall.setns.return = kernel.function("sys_setns").return ?
+{
+	@_SYSCALL_SETNS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_setns _____________________________________________________
+
+probe nd_syscall.setns = nd1_syscall.setns!, nd2_syscall.setns!, tp_syscall.setns
+  { }
+
+probe nd1_syscall.setns = kprobe.function("sys_setns") ?
+{
+	@_SYSCALL_SETNS_NAME
+	asmlinkage()
+	@_SYSCALL_SETNS_REGARGS
+        @_SYSCALL_SETNS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setns = kprobe.function(@arch_syscall_prefix "sys_setns") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SETNS_NAME
+	@_SYSCALL_SETNS_REGARGS
+	@_SYSCALL_SETNS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setns = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_setns"), @const("__NR_compat_setns"))
+	@_SYSCALL_SETNS_NAME
+	@_SYSCALL_SETNS_REGARGS
+	@_SYSCALL_SETNS_ARGSTR
+}
+
+probe nd_syscall.setns.return = nd1_syscall.setns.return!, nd2_syscall.setns.return!, tp_syscall.setns.return
+  { }
+  
+probe nd1_syscall.setns.return = kprobe.function("sys_setns").return ?
+{
+	@_SYSCALL_SETNS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setns.return = kprobe.function(@arch_syscall_prefix "sys_setns").return ?
+{
+	@_SYSCALL_SETNS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setns.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_setns"), @const("__NR_compat_setns"))
+	@_SYSCALL_SETNS_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,163 @@
+# umount _____________________________________________________
+# long sys_umount(char __user * name, int flags)
+# SYSCALL_DEFINE1(oldumount, char __user *, name)
+#
+
+@define _SYSCALL_UMOUNT_NAME
+%(
+	name = "umount"
+%)
+
+@define _SYSCALL_UMOUNT_ARGSTR
+%(
+	argstr = sprintf("%s, %s", target, flags_str)
+%)
+
+@define _SYSCALL_UMOUNT_REGARGS
+%(
+	target = user_string_quoted(pointer_arg(1))
+	flags = int_arg(2)
+	flags_str = _umountflags_str(flags)
+%)
+
+@define _SYSCALL_OLDUMOUNT_REGARGS
+%(
+	target = user_string_quoted(pointer_arg(1))
+	flags = 0
+	flags_str = _umountflags_str(0)
+%)
+
+probe syscall.umount = dw_syscall.umount !, nd_syscall.umount ? {}
+probe syscall.umount.return = dw_syscall.umount.return !,
+                              nd_syscall.umount.return ? {}
+
+# dw_umount _____________________________________________________
+
+probe dw_syscall.umount = __syscall.umount, __syscall.oldumount ?
+{
+	@_SYSCALL_UMOUNT_NAME
+}
+probe __syscall.umount = kernel.function("sys_umount").call
+{
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+	target = user_string_quoted($name)
+	flags = $flags
+	flags_str = _umountflags_str($flags)
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+probe __syscall.oldumount = kernel.function("sys_oldumount").call ?
+{
+	target = user_string_quoted($name)
+	flags = 0
+	flags_str = _umountflags_str(0)
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+probe dw_syscall.umount.return = __syscall.umount.return,
+			      kernel.function("sys_oldumount").return ?
+{
+	@_SYSCALL_UMOUNT_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.umount.return = kernel.function("sys_umount").return
+{
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+}
+
+# nd_umount _____________________________________________________
+
+probe nd_syscall.umount = nd1_syscall.umount!, nd2_syscall.umount!, tp_syscall.umount
+  { }
+
+probe nd1_syscall.umount = __nd1_syscall.umount, __nd1_syscall.oldumount ?
+{
+	@_SYSCALL_UMOUNT_NAME
+}
+probe __nd1_syscall.umount = kprobe.function("sys_umount")
+{
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+	asmlinkage()
+	@_SYSCALL_UMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+probe __nd1_syscall.oldumount = kprobe.function("sys_oldumount") ?
+{
+	asmlinkage()
+	@_SYSCALL_OLDUMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.umount = __nd2_syscall.umount, __nd2_syscall.oldumount ?
+{
+	@_SYSCALL_UMOUNT_NAME
+}
+probe __nd2_syscall.umount = kprobe.function(@arch_syscall_prefix "sys_umount")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_UMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+probe __nd2_syscall.oldumount = kprobe.function(@arch_syscall_prefix "sys_oldumount") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_OLDUMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.umount = __tp_syscall.umount, __tp_syscall.oldumount ?
+{
+	@_SYSCALL_UMOUNT_NAME
+}
+probe __tp_syscall.umount = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+	@_SYSCALL_UMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+probe __tp_syscall.oldumount = kernel.trace("sys_enter") 
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_umount"), @const("__NR_compat_umount"))
+	@_SYSCALL_OLDUMOUNT_REGARGS
+	@_SYSCALL_UMOUNT_ARGSTR
+}
+
+probe nd_syscall.umount.return = nd1_syscall.umount.return!, nd2_syscall.umount.return!, tp_syscall.umount.return
+  { }
+  
+probe nd1_syscall.umount.return = __nd1_syscall.umount.return,
+				 kprobe.function("sys_oldumount").return ?
+{
+	@_SYSCALL_UMOUNT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.umount.return = kprobe.function("sys_umount").return
+{
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.umount.return = kprobe.function(@arch_syscall_prefix "sys_umount").return,
+                                  kprobe.function(@arch_syscall_prefix "sys_oldumount").return ?
+{
+	@_SYSCALL_UMOUNT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.umount.return = __tp_syscall.umount.return, __tp_syscall.oldumount.return ?
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_UMOUNT_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.umount.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_umount2"), @const("__NR_compat_umount2"))
+}
+probe __tp_syscall.oldumount.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_umount"), @const("__NR_compat_umount"))
+}

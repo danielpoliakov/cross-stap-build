@@ -1,0 +1,124 @@
+# open _______________________________________________________
+# long sys_open(const char __user * filename, int flags, int mode)
+# (obsolete) long sys32_open(const char * filename, int flags, int mode)
+#
+
+@define _SYSCALL_OPEN_NAME
+%(
+	name = "open"
+%)
+
+@define _SYSCALL_OPEN_ARGSTR
+%(
+	if (flags & @const("O_CREAT"))
+		argstr = sprintf("%s, %s, %#o", filename, flags_str, mode)
+	else
+		argstr = sprintf("%s, %s", filename, flags_str)
+%)
+
+@define _SYSCALL_OPEN_REGARGS
+%(
+	filename = user_string_quoted(pointer_arg(1))
+	flags = int_arg(2)
+	flags_str = _sys_open_flag_str(flags)
+	mode = uint_arg(3)
+%)
+
+probe syscall.open = dw_syscall.open !, nd_syscall.open ? {}
+probe syscall.open.return = dw_syscall.open.return !, nd_syscall.open.return ? {}
+
+# dw_open _____________________________________________________
+
+probe dw_syscall.open = __syscall.compat_open ?, __syscall.open
+{
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	flags = __int32($flags)
+	flags_str = _sys_open_flag_str(flags)
+	@_SYSCALL_OPEN_ARGSTR
+}
+probe __syscall.compat_open = kernel.function("compat_sys_open").call ?,
+			      kernel.function("sys32_open").call ?
+{
+	// On some platforms, $filename and $mode are longs on the
+	// kernel side. Truncate these down to 32 bits.
+	filename = user_string_quoted(__uint32($filename))
+	mode = __uint32($mode)
+}
+probe __syscall.open = kernel.function("sys_open").call
+{
+	filename = user_string_quoted($filename)
+	mode = __uint32($mode)
+}
+probe dw_syscall.open.return = kernel.function("compat_sys_open").return ?,
+                            kernel.function("sys32_open").return ?,
+                            kernel.function("sys_open").return ?
+{
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_open _____________________________________________________
+
+probe nd_syscall.open = nd1_syscall.open!, nd2_syscall.open!, tp_syscall.open
+  { }
+
+probe nd1_syscall.open = kprobe.function("compat_sys_open") ?,
+                         kprobe.function("sys32_open") ?,
+                         kprobe.function("sys_open") ?
+{
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	asmlinkage()
+	@_SYSCALL_OPEN_REGARGS
+	@_SYSCALL_OPEN_ARGSTR
+}
+
+probe nd2_syscall.open = kprobe.function(@arch_syscall_prefix "compat_sys_open") ?,
+                         kprobe.function(@arch_syscall_prefix "sys_open") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_OPEN_NAME
+	@_SYSCALL_OPEN_REGARGS
+	@_SYSCALL_OPEN_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because of it affects all syscalls */
+probe tp_syscall.open = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	@_SYSCALL_OPEN_REGARGS
+	@_SYSCALL_OPEN_ARGSTR
+}
+
+probe nd_syscall.open.return = nd1_syscall.open.return!, nd2_syscall.open.return!, tp_syscall.open.return
+  { }
+
+probe nd1_syscall.open.return = kprobe.function("compat_sys_open").return ?,
+                                kprobe.function("sys32_open").return ?,
+                                kprobe.function("sys_open").return ?
+{
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.open.return = kprobe.function(@arch_syscall_prefix "compat_sys_open").return ?,
+                                kprobe.function(@arch_syscall_prefix "sys_open").return ?
+{
+	@_SYSCALL_OPEN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because of it affects all syscalls */
+probe tp_syscall.open.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_open"), @const("__NR_compat_open"))
+	@_SYSCALL_OPEN_NAME
+	@SYSC_RETVALSTR($ret)
+}

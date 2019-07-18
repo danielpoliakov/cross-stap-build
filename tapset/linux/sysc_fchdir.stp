@@ -1,0 +1,91 @@
+# fchdir _____________________________________________________
+# long sys_fchdir(unsigned int fd)
+
+@define _SYSCALL_FCHDIR_NAME
+%(
+	name = "fchdir"
+%)
+
+@define _SYSCALL_FCHDIR_ARGSTR
+%(
+	argstr = sprint(fd)
+%)
+
+@define _SYSCALL_FCHDIR_REGARGS
+%(
+	fd = int_arg(1)
+%)
+
+probe syscall.fchdir = dw_syscall.fchdir !, nd_syscall.fchdir ? {}
+probe syscall.fchdir.return = dw_syscall.fchdir.return !, nd_syscall.fchdir.return ? {}
+
+# dw_fchdir _____________________________________________________
+
+probe dw_syscall.fchdir = kernel.function("sys_fchdir").call
+{
+	@_SYSCALL_FCHDIR_NAME
+	fd = __int32($fd)
+	@_SYSCALL_FCHDIR_ARGSTR
+}
+probe dw_syscall.fchdir.return = kernel.function("sys_fchdir").return
+{
+	@_SYSCALL_FCHDIR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fchdir _____________________________________________________
+
+probe nd_syscall.fchdir = nd1_syscall.fchdir!, nd2_syscall.fchdir!, tp_syscall.fchdir
+  { }
+
+probe nd1_syscall.fchdir = kprobe.function("sys_fchdir") ?
+{
+	@_SYSCALL_FCHDIR_NAME
+	asmlinkage()
+	@_SYSCALL_FCHDIR_REGARGS
+	@_SYSCALL_FCHDIR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchdir = kprobe.function(@arch_syscall_prefix "sys_fchdir")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FCHDIR_NAME
+	@_SYSCALL_FCHDIR_REGARGS
+	@_SYSCALL_FCHDIR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchdir = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchdir"), @const("__NR_compat_fchdir"))
+	@_SYSCALL_FCHDIR_NAME
+	@_SYSCALL_FCHDIR_REGARGS
+	@_SYSCALL_FCHDIR_ARGSTR
+}
+
+probe nd_syscall.fchdir.return = nd1_syscall.fchdir.return!, nd2_syscall.fchdir.return!, tp_syscall.fchdir.return
+  { }
+
+probe nd1_syscall.fchdir.return = kprobe.function("sys_fchdir").return ?
+{
+	@_SYSCALL_FCHDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchdir.return = kprobe.function(@arch_syscall_prefix "sys_fchdir").return
+{
+	@_SYSCALL_FCHDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchdir.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchdir"), @const("__NR_compat_fchdir"))
+	@_SYSCALL_FCHDIR_NAME
+	@SYSC_RETVALSTR($ret)
+}

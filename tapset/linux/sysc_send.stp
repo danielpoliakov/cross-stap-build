@@ -1,0 +1,243 @@
+# send _______________________________________________________
+#
+# long sys_send(int fd,
+#		void __user * buff,
+#		size_t len,
+#		unsigned flags)
+#
+
+@define _SYSCALL_SEND_NAME
+%(
+	name = "send"
+%)
+
+@define _SYSCALL_SEND_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %u, %s", s, buf, len, flags_str)
+%)
+
+@define _SYSCALL_SEND_REGARGS
+%(
+	s = int_arg(1)
+	buf_uaddr = pointer_arg(2)
+	len = ulong_arg(3)
+	flags = uint_arg(4)
+%)
+
+@define _SYSCALL_SOCKETCALL_SEND_REGARGS
+%(
+	__args = &@ulong_cast(pointer_arg(2))
+	s = __int32(user_ulong(&@ulong_cast(__args)[0]))
+	buf_uaddr = user_ulong(&@ulong_cast(__args)[1])
+	len = user_ulong(&@ulong_cast(__args)[2])
+	flags = __uint32(user_ulong(&@ulong_cast(__args)[3]))
+%)
+
+@define _SYSCALL_COMPAT_SOCKETCALL_SEND_REGARGS
+%(
+	__args = &@uint_cast(pointer_arg(2))
+	s = user_int(&@uint_cast(__args)[0])
+	buf_uaddr = user_uint32(&@uint_cast(__args)[1])
+	len = user_uint32(&@uint_cast(__args)[2])
+	flags = user_uint32(&@uint_cast(__args)[3])
+%)
+
+probe syscall.send = dw_syscall.send !, nd_syscall.send ? {}
+probe syscall.send.return = dw_syscall.send.return !,
+                            nd_syscall.send.return ? {}
+
+# dw_send _____________________________________________________
+
+probe dw_syscall.send = __syscall.send ?, __syscall.socketcall.send ?,
+	__syscall.compat_socketcall.send ?
+{
+	@_SYSCALL_SEND_NAME
+	flags_str = _msg_flags_str(flags)
+	buf = user_buffer_quoted(buf_uaddr, len, syscall_string_trunc)
+	@_SYSCALL_SEND_ARGSTR
+}
+probe __syscall.send = kernel.function("sys_send").call ?
+{
+	@__syscall_gate(@const("__NR_send"))
+	s = __int32($fd)
+	buf_uaddr = $buff
+	len = __ulong($len)
+	flags = __uint32($flags)
+}
+probe __syscall.socketcall.send = kernel.function("sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_SEND")) next;
+	s = __int32(user_ulong(&@ulong_cast($args)[0]))
+	buf_uaddr = user_ulong(&@ulong_cast($args)[1])
+	len = user_ulong(&@ulong_cast($args)[2])
+	flags = __uint32(user_ulong(&@ulong_cast($args)[3]))
+}
+probe __syscall.compat_socketcall.send =
+	kernel.function("compat_sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_SEND")) next;
+	s = user_int(&@uint_cast($args)[0])
+	buf_uaddr = user_uint32(&@uint_cast($args)[1])
+	len = user_uint32(&@uint_cast($args)[2])
+	flags = user_uint32(&@uint_cast($args)[3])
+}
+probe dw_syscall.send.return = __syscall.send.return ?,
+	__syscall.socketcall.send.return ?
+{
+	@_SYSCALL_SEND_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.send.return = kernel.function("sys_send").return ?
+{
+	@__syscall_gate(@const("__NR_send"))
+}
+probe __syscall.socketcall.send.return =
+	kernel.function("sys_socketcall").return ?,
+	kernel.function("compat_sys_socketcall").return ?
+{
+	if (__int32(@entry($call)) != @const("SYS_SEND")) next;
+}
+
+# nd_send _____________________________________________________
+
+probe nd_syscall.send = nd1_syscall.send!, nd2_syscall.send!, tp_syscall.send
+  { }
+
+probe nd1_syscall.send = __nd1_syscall.send ?, __nd1_syscall.socketcall.send ?,
+	__nd1_syscall.compat_socketcall.send ?
+{
+	@_SYSCALL_SEND_NAME
+	flags_str = _msg_flags_str(flags)
+	buf = user_buffer_quoted(buf_uaddr, len, syscall_string_trunc)
+	@_SYSCALL_SEND_ARGSTR
+}
+probe __nd1_syscall.send = kprobe.function("sys_send") ?
+{
+	@__syscall_gate(@const("__NR_send"))
+	asmlinkage()
+	@_SYSCALL_SEND_REGARGS
+}
+probe __nd1_syscall.socketcall.send = kprobe.function("sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_SEND")) next;
+	@_SYSCALL_SOCKETCALL_SEND_REGARGS
+}
+probe __nd1_syscall.compat_socketcall.send =
+	kprobe.function("compat_sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_SEND")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_SEND_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.send = __nd2_syscall.send ?,
+	__nd2_syscall.socketcall.send ?,
+	__nd2_syscall.compat_socketcall.send ?
+{
+	@_SYSCALL_SEND_NAME
+	flags_str = _msg_flags_str(flags)
+	buf = user_buffer_quoted(buf_uaddr, len, syscall_string_trunc)
+	@_SYSCALL_SEND_ARGSTR
+}
+probe __nd2_syscall.send = kprobe.function(@arch_syscall_prefix "sys_send") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SEND_REGARGS
+}
+probe __nd2_syscall.socketcall.send = kprobe.function(@arch_syscall_prefix "sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_SEND")) next;
+	@_SYSCALL_SOCKETCALL_SEND_REGARGS
+}
+probe __nd2_syscall.compat_socketcall.send =
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_SEND")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_SEND_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.send = __tp_syscall.send ?,
+	__tp_syscall.socketcall.send ?
+{
+	@_SYSCALL_SEND_NAME
+	flags_str = _msg_flags_str(flags)
+	buf = user_buffer_quoted(buf_uaddr, len, syscall_string_trunc)
+	@_SYSCALL_SEND_ARGSTR
+}
+probe __tp_syscall.send = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_send"))
+	@_SYSCALL_SEND_REGARGS
+}
+probe __tp_syscall.socketcall.send = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_SEND")) next;
+	if (@__compat_task) {
+		@_SYSCALL_COMPAT_SOCKETCALL_SEND_REGARGS
+	}
+	else {
+		@_SYSCALL_SOCKETCALL_SEND_REGARGS
+	}
+}
+
+probe nd_syscall.send.return = nd1_syscall.send.return!, nd2_syscall.send.return!, tp_syscall.send.return
+  { }
+
+probe nd1_syscall.send.return = __nd1_syscall.send.return ?,
+	__nd1_syscall.socketcall.send.return ?
+{
+	@_SYSCALL_SEND_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.send.return = kprobe.function("sys_send").return ?
+{
+	@__syscall_gate(@const("__NR_send"))
+}
+probe __nd1_syscall.socketcall.send.return =
+	kprobe.function("sys_socketcall").return ?,
+	kprobe.function("compat_sys_socketcall").return ?
+{
+	if (@entry(__asmlinkage_int_arg(1)) != @const("SYS_SEND")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.send.return =
+	kprobe.function(@arch_syscall_prefix "sys_send").return ?,
+	__nd2_syscall.socketcall.send.return ?
+{
+	@_SYSCALL_SEND_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.socketcall.send.return =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SYS_SEND")) next;
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.send.return = __tp_syscall.send.return ?,
+	__tp_syscall.socketcall.send.return ?
+{
+	@_SYSCALL_SEND_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.send.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_send"))
+}
+probe __tp_syscall.socketcall.send.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_SEND")) next;
+}

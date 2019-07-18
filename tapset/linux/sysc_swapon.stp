@@ -1,0 +1,102 @@
+# swapon _____________________________________________________
+#
+# asmlinkage long
+# sys_swapon(const char __user * specialfile,
+#		int swap_flags)
+#
+
+@define _SYSCALL_SWAPON_NAME
+%(
+	name = "swapon"
+%)
+
+@define _SYSCALL_SWAPON_ARGSTR
+%(
+	argstr = sprintf("%s, %s", path, swapflags_str)
+%)
+
+@define _SYSCALL_SWAPON_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+	swapflags = int_arg(2)
+	swapflags_str = _swapon_flags_str(swapflags)
+%)
+
+probe syscall.swapon = dw_syscall.swapon !, nd_syscall.swapon ? {}
+probe syscall.swapon.return = dw_syscall.swapon.return !,
+                              nd_syscall.swapon.return ? {}
+
+# dw_swapon _____________________________________________________
+
+probe dw_syscall.swapon = kernel.function("sys_swapon").call ?
+{
+	@_SYSCALL_SWAPON_NAME
+	path_uaddr = $specialfile
+	path = user_string_quoted(path_uaddr)
+	swapflags = __int32($swap_flags)
+	swapflags_str = _swapon_flags_str(__int32($swap_flags))
+	@_SYSCALL_SWAPON_ARGSTR
+}
+probe dw_syscall.swapon.return = kernel.function("sys_swapon").return ?
+{
+	@_SYSCALL_SWAPON_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_swapon _____________________________________________________
+
+probe nd_syscall.swapon = nd1_syscall.swapon!, nd2_syscall.swapon!, tp_syscall.swapon
+  { }
+
+probe nd1_syscall.swapon = kprobe.function("sys_swapon") ?
+{
+	@_SYSCALL_SWAPON_NAME
+	asmlinkage()
+	@_SYSCALL_SWAPON_REGARGS
+	@_SYSCALL_SWAPON_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.swapon = kprobe.function(@arch_syscall_prefix "sys_swapon") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SWAPON_NAME
+	@_SYSCALL_SWAPON_REGARGS
+	@_SYSCALL_SWAPON_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.swapon = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_swapon"), @const("__NR_compat_swapon"))
+	@_SYSCALL_SWAPON_NAME
+	@_SYSCALL_SWAPON_REGARGS
+	@_SYSCALL_SWAPON_ARGSTR
+}
+
+probe nd_syscall.swapon.return = nd1_syscall.swapon.return!, nd2_syscall.swapon.return!, tp_syscall.swapon.return
+  { }
+
+probe nd1_syscall.swapon.return = kprobe.function("sys_swapon").return ?
+{
+	@_SYSCALL_SWAPON_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.swapon.return = kprobe.function(@arch_syscall_prefix "sys_swapon").return ?
+{
+	@_SYSCALL_SWAPON_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.swapon.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_swapon"), @const("__NR_compat_swapon"))
+	@_SYSCALL_SWAPON_NAME
+	@SYSC_RETVALSTR($ret)
+}

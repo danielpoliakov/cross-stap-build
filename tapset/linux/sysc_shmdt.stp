@@ -1,0 +1,137 @@
+# shmdt ______________________________________________________
+#
+# long sys_shmdt(char __user *shmaddr)
+#
+
+@define _SYSCALL_SHMDT_NAME
+%(
+	name = "shmdt"
+%)
+
+@define _SYSCALL_SHMDT_ARGSTR
+%(
+	argstr = sprintf("%p", shmaddr_uaddr)
+%)
+
+@define _SYSCALL_SHMDT_REGARGS
+%(
+	shmaddr_uaddr = pointer_arg(1)
+%)
+
+@define _SYSCALL_IPC_SHMDT_REGARGS
+%(
+	shmaddr_uaddr = pointer_arg(5)
+%)
+
+probe syscall.shmdt = dw_syscall.shmdt !, nd_syscall.shmdt ? {}
+probe syscall.shmdt.return = dw_syscall.shmdt.return !,
+                             nd_syscall.shmdt.return ? {}
+
+# dw_shmdt _____________________________________________________
+
+probe dw_syscall.shmdt = kernel.function("sys_shmdt").call ?
+{
+	@_SYSCALL_SHMDT_NAME
+	shmaddr_uaddr = $shmaddr
+	@_SYSCALL_SHMDT_ARGSTR
+}
+probe dw_syscall.shmdt.return = kernel.function("sys_shmdt").return ?
+{
+	@_SYSCALL_SHMDT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_shmdt _____________________________________________________
+
+probe nd_syscall.shmdt = nd1_syscall.shmdt!, nd2_syscall.shmdt!, tp_syscall.shmdt
+  { }
+
+probe nd1_syscall.shmdt = kprobe.function("sys_shmdt") ?
+{
+	@_SYSCALL_SHMDT_NAME
+	asmlinkage()
+	@_SYSCALL_SHMDT_REGARGS
+	@_SYSCALL_SHMDT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmdt = __nd2_syscall.shmdt ?, __nd2_syscall.compat_ipc.shmdt ?
+{
+	@_SYSCALL_SHMDT_NAME
+	@_SYSCALL_SHMDT_ARGSTR
+}
+probe __nd2_syscall.shmdt =
+	kprobe.function(@arch_syscall_prefix "sys_shmdt") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SHMDT_REGARGS
+}
+probe __nd2_syscall.compat_ipc.shmdt = 
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SHMDT")) next;
+	@_SYSCALL_IPC_SHMDT_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmdt = __tp_syscall.shmdt, __tp_syscall.compat_ipc.shmdt
+{
+	@_SYSCALL_SHMDT_NAME
+	@_SYSCALL_SHMDT_ARGSTR
+}
+probe __tp_syscall.shmdt = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_shmdt"))
+	@_SYSCALL_SHMDT_REGARGS
+}
+probe __tp_syscall.compat_ipc.shmdt = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMDT")) next;
+	@_SYSCALL_IPC_SHMDT_REGARGS
+}
+
+probe nd_syscall.shmdt.return = nd1_syscall.shmdt.return!, nd2_syscall.shmdt.return!, tp_syscall.shmdt.return
+  { }
+  
+probe nd1_syscall.shmdt.return = kprobe.function("sys_shmdt").return ?
+{
+	@_SYSCALL_SHMDT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmdt.return =
+	kprobe.function(@arch_syscall_prefix "sys_shmdt").return ?,
+	__nd2_syscall.compat_ipc.shmdt.return ?
+{
+	@_SYSCALL_SHMDT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.compat_ipc.shmdt.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SHMDT")) next;
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmdt.return =	__tp_syscall.shmdt.return,
+	 __tp_syscall.compat_ipc.shmdt.return
+{
+	@_SYSCALL_SHMDT_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.shmdt.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_shmdt"))
+}
+probe __tp_syscall.compat_ipc.shmdt.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMDT")) next;
+}

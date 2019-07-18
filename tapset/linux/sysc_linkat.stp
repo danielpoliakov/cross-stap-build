@@ -1,0 +1,113 @@
+# linkat _____________________________________________________
+# new function with 2.6.16
+# long sys_linkat(int olddfd, const char __user *oldname,
+#	int newdfd, const char __user *newname, int flags)
+
+@define _SYSCALL_LINKAT_NAME
+%(
+	name = "linkat"
+%)
+
+@define _SYSCALL_LINKAT_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s, %s, %s", olddirfd_str, oldpath,
+	                 newdirfd_str, newpath, flags_str)
+%)
+
+@define _SYSCALL_LINKAT_REGARGS
+%(
+	olddirfd = int_arg(1)
+	olddirfd_str = _dfd_str(olddirfd)
+	oldpath = user_string_quoted(pointer_arg(2))
+	newdirfd = int_arg(3)
+	newdirfd_str = _dfd_str(newdirfd)
+	newpath = user_string_quoted(pointer_arg(4))
+	flags = int_arg(5)
+	flags_str = _at_flag_str(flags)
+%)
+
+probe syscall.linkat = dw_syscall.linkat !, nd_syscall.linkat ? {}
+probe syscall.linkat.return = dw_syscall.linkat.return !,
+                              nd_syscall.linkat.return ? {}
+
+# dw_linkat _____________________________________________________
+
+probe dw_syscall.linkat = kernel.function("sys_linkat").call ?
+{
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	olddirfd = __int32($olddfd)
+	olddirfd_str = _dfd_str(__int32($olddfd))
+	oldpath = user_string_quoted($oldname)
+	newdirfd = __int32($newdfd)
+	newdirfd_str = _dfd_str(__int32($newdfd))
+	newpath = user_string_quoted($newname)
+	flags = __int32($flags)
+	flags_str = _at_flag_str(__int32($flags))
+	@_SYSCALL_LINKAT_ARGSTR
+}
+probe dw_syscall.linkat.return = kernel.function("sys_linkat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_linkat _____________________________________________________
+
+probe nd_syscall.linkat = nd1_syscall.linkat!, nd2_syscall.linkat!, tp_syscall.linkat
+  { }
+
+probe nd1_syscall.linkat = kprobe.function("sys_linkat") ?
+{
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	asmlinkage()
+	@_SYSCALL_LINKAT_REGARGS
+	@_SYSCALL_LINKAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.linkat = kprobe.function(@arch_syscall_prefix "sys_linkat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LINKAT_NAME
+	@_SYSCALL_LINKAT_REGARGS
+	@_SYSCALL_LINKAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.linkat = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	@_SYSCALL_LINKAT_REGARGS
+	@_SYSCALL_LINKAT_ARGSTR
+}
+
+probe nd_syscall.linkat.return = nd1_syscall.linkat.return!, nd2_syscall.linkat.return!, tp_syscall.linkat.return
+  { }
+
+probe nd1_syscall.linkat.return = kprobe.function("sys_linkat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.linkat.return = kprobe.function(@arch_syscall_prefix "sys_linkat").return ?
+{
+	@_SYSCALL_LINKAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.linkat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_linkat"), @const("__NR_compat_linkat"))
+	@_SYSCALL_LINKAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

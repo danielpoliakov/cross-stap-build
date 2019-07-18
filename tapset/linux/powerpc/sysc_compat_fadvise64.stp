@@ -1,0 +1,170 @@
+# fadvise64 _______________________________________________________
+#
+# long ppc32_fadvise64(int fd, u32 unused, u32 offset_high, u32 offset_low,
+# 		     size_t len, int advice)
+
+@define _SYSCALL_COMPAT_FADVISE64_NAME
+%(
+	name = "fadvise64"
+%)
+
+@define _SYSCALL_COMPAT_FADVISE64_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %d, %s", fd, offset, len, advice_str)
+%)
+
+@define _SYSCALL_COMPAT_FADVISE64_REGARGS
+%(
+	fd = int_arg(1)
+	# The 2nd parameter is ignored.
+	offset = ((uint_arg(3) << 32) | uint_arg(4))
+	len = int_arg(5)
+	advice = int_arg(6)
+	advice_str = _fadvice_advice_str(advice)
+%)
+
+@define _SYSCALL_COMPAT_FADVISE64_64_REGARGS
+%(
+	fd = int_arg(1)
+	advice = int_arg(2)
+	advice_str = _fadvice_advice_str(advice)
+	offset = ((uint_arg(3) << 32) | uint_arg(4))
+	len = ((uint_arg(5) << 32) | uint_arg(6))
+%)
+
+probe syscall.compat_fadvise64 = dw_syscall.compat_fadvise64 !,
+                                 nd_syscall.compat_fadvise64 ? {}
+probe syscall.compat_fadvise64.return = dw_syscall.compat_fadvise64.return !,
+                                        nd_syscall.compat_fadvise64.return ? {}
+
+# dw_compat_fadvise64 _____________________________________________________
+
+probe dw_syscall.compat_fadvise64 = kernel.function("ppc32_fadvise64").call ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	fd = __int32($fd)
+	offset = (($offset_high << 32) | $offset_low)
+	len = __int32($len)
+	advice = __int32($advice)
+	advice_str = _fadvice_advice_str(advice)
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+probe dw_syscall.compat_fadvise64.return =
+	kernel.function("ppc32_fadvise64").return ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_fadvise64 _____________________________________________________
+
+probe nd_syscall.compat_fadvise64 = nd1_syscall.compat_fadvise64!, tp_syscall.compat_fadvise64
+  { }
+
+probe nd1_syscall.compat_fadvise64 = kprobe.function("ppc32_fadvise64") ?
+{
+	asmlinkage()
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@_SYSCALL_COMPAT_FADVISE64_REGARGS
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fadvise64 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_fadvise64"))
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@_SYSCALL_COMPAT_FADVISE64_REGARGS
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+
+probe nd_syscall.compat_fadvise64.return = nd1_syscall.compat_fadvise64.return!, tp_syscall.compat_fadvise64.return
+  { }
+ 
+probe nd1_syscall.compat_fadvise64.return =
+	kprobe.function("ppc32_fadvise64").return ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fadvise64.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_fadvise64"))
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# fadvise64 _______________________________________________________
+#
+# long ppc_fadvise64_64(int fd, int advice, u32 offset_high, u32 offset_low,
+#		      u32 len_high, u32 len_low)
+
+probe syscall.compat_fadvise64_64 = dw_syscall.compat_fadvise64_64 !,
+                                    nd_syscall.compat_fadvise64_64 ? {}
+probe syscall.compat_fadvise64_64.return = dw_syscall.compat_fadvise64_64.return !,
+                                           nd_syscall.compat_fadvise64_64.return ? {}
+
+# dw_compat_fadvise64_64 _____________________________________________________
+
+probe dw_syscall.compat_fadvise64_64 = kernel.function("ppc_fadvise64_64").call ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	fd = __int32($fd)
+	advice = __int32($advice)
+	advice_str = _fadvice_advice_str(advice)
+	offset = (($offset_high << 32) | $offset_low)
+	len = (($len_high << 32) | $len_low)
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+probe dw_syscall.compat_fadvise64_64.return =
+	kernel.function("ppc_fadvise64_64").return ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_fadvise64_64 _____________________________________________________
+
+probe nd_syscall.compat_fadvise64_64 = nd1_syscall.compat_fadvise64_64!, tp_syscall.compat_fadvise64_64
+  { }
+
+probe nd1_syscall.compat_fadvise64_64 = kprobe.function("ppc_fadvise64_64") ?
+{
+	asmlinkage()
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@_SYSCALL_COMPAT_FADVISE64_64_REGARGS
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fadvise64_64 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_fadvise64_64"))
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@_SYSCALL_COMPAT_FADVISE64_64_REGARGS
+	@_SYSCALL_COMPAT_FADVISE64_ARGSTR
+}
+
+probe nd_syscall.compat_fadvise64_64.return = nd1_syscall.compat_fadvise64_64.return!, tp_syscall.compat_fadvise64_64.return
+  { }
+
+probe nd1_syscall.compat_fadvise64_64.return =
+	kprobe.function("ppc_fadvise64_64").return ?
+{
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_fadvise64_64.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_fadvise64_64"))
+	@_SYSCALL_COMPAT_FADVISE64_NAME
+	@SYSC_RETVALSTR($ret)
+}

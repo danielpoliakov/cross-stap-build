@@ -1,0 +1,108 @@
+# arch_prctl _________________________________________________
+# long sys_arch_prctl(int code, unsigned long addr)
+# SYSCALL_DEFINE2(arch_prctl, int, option, unsigned long, arg2)
+# COMPAT_SYSCALL_DEFINE2(arch_prctl, int, option, unsigned long, arg2)
+#
+# NOTE: x86_64 only.
+#
+
+@define _SYSCALL_ARCH_PRCTL_NAME
+%(
+	name = "arch_prctl"
+%)
+
+@define _SYSCALL_ARCH_PRCTL_ARGSTR
+%(
+	argstr = sprintf("%s, %u", code_str, addr)
+%)
+
+@define _SYSCALL_ARCH_PRCTL_REGARGS
+%(
+	code = int_arg(1)
+	code_str = _stp_arch_prctl_func_str(code)
+	addr = ulong_arg(2)
+%)
+
+probe syscall.arch_prctl = dw_syscall.arch_prctl !,
+                           nd_syscall.arch_prctl {}
+probe syscall.arch_prctl.return = dw_syscall.arch_prctl.return !,
+                                  nd_syscall.arch_prctl.return {}
+
+# dw_arch_prctl _____________________________________________________
+
+probe dw_syscall.arch_prctl = kernel.function("sys_arch_prctl").call,
+	kernel.function("compat_sys_arch_prctl").call ?
+{
+	@_SYSCALL_ARCH_PRCTL_NAME
+	code = __int32(@choose_defined($code, $option))
+	code_str = _stp_arch_prctl_func_str(code)
+	addr = __ulong(@choose_defined($addr, $arg2))
+	@_SYSCALL_ARCH_PRCTL_ARGSTR
+}
+probe dw_syscall.arch_prctl.return = kernel.function("sys_arch_prctl").return,
+	kernel.function("compat_sys_arch_prctl").return ?
+{
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_arch_prctl _____________________________________________________
+
+probe nd_syscall.arch_prctl = nd1_syscall.arch_prctl!, nd2_syscall.arch_prctl!, tp_syscall.arch_prctl
+  { }
+
+probe nd1_syscall.arch_prctl = kprobe.function("sys_arch_prctl"),
+	kprobe.function("compat_sys_arch_prctl") ?
+{
+	@_SYSCALL_ARCH_PRCTL_NAME
+	// NB: no asmlinkage()
+	@_SYSCALL_ARCH_PRCTL_REGARGS
+	@_SYSCALL_ARCH_PRCTL_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.arch_prctl = kprobe.function(@arch_syscall_prefix "sys_arch_prctl"),
+	kprobe.function(@arch_syscall_prefix "compat_sys_arch_prctl") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@_SYSCALL_ARCH_PRCTL_REGARGS
+	@_SYSCALL_ARCH_PRCTL_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.arch_prctl = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_arch_prctl"), @const("__NR_ia32_arch_prctl"))
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@_SYSCALL_ARCH_PRCTL_REGARGS
+	@_SYSCALL_ARCH_PRCTL_ARGSTR
+}
+
+probe nd_syscall.arch_prctl.return = nd1_syscall.arch_prctl.return!, nd2_syscall.arch_prctl.return!, tp_syscall.arch_prctl.return
+  { }
+  
+probe nd1_syscall.arch_prctl.return = kprobe.function("sys_arch_prctl").return,
+	kprobe.function("compat_sys_arch_prctl").return ?
+{
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.arch_prctl.return = kprobe.function(@arch_syscall_prefix "sys_arch_prctl").return,
+      kprobe.function(@arch_syscall_prefix "compat_sys_arch_prctl").return ?
+{
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.arch_prctl.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_arch_prctl"), @const("__NR_ia32_arch_prctl"))
+	@_SYSCALL_ARCH_PRCTL_NAME
+	@SYSC_RETVALSTR($ret)
+}

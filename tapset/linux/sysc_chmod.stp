@@ -1,0 +1,100 @@
+# chmod ______________________________________________________
+# long sys_chmod(const char __user * filename, mode_t mode)
+
+@define _SYSCALL_CHMOD_NAME
+%(
+	name = "chmod"
+%)
+
+@define _SYSCALL_CHMOD_ARGSTR
+%(
+	argstr = sprintf("%s, %#o", path, mode)
+%)
+
+@define _SYSCALL_CHMOD_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	mode = uint_arg(2)
+%)
+
+probe syscall.chmod = dw_syscall.chmod !, nd_syscall.chmod ? {}
+probe syscall.chmod.return = dw_syscall.chmod.return !, nd_syscall.chmod.return ? {}
+
+# dw_chmod _____________________________________________________
+
+probe dw_syscall.chmod = kernel.function("sys_chmod").call
+{
+	@_SYSCALL_CHMOD_NAME
+	path = user_string_quoted($filename)
+%( arch == "i386" %?
+	# Why @cast() here? Even though the user passes an unsigned
+	# int (32-bits), some kernels (2.6.32-431.el6.i686) get an
+	# unsigned short (16-bits).
+	mode = @uint_cast(&$mode)
+%:
+	mode = __uint32($mode)
+%)
+	@_SYSCALL_CHMOD_ARGSTR
+}
+probe dw_syscall.chmod.return = kernel.function("sys_chmod").return
+{
+	@_SYSCALL_CHMOD_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_chmod _____________________________________________________
+
+probe nd_syscall.chmod = nd1_syscall.chmod!, nd2_syscall.chmod!, tp_syscall.chmod
+  { }
+
+probe nd1_syscall.chmod = kprobe.function("sys_chmod") ?
+{
+	@_SYSCALL_CHMOD_NAME
+	asmlinkage()
+	@_SYSCALL_CHMOD_REGARGS
+	@_SYSCALL_CHMOD_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chmod = kprobe.function(@arch_syscall_prefix "sys_chmod") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CHMOD_NAME
+	@_SYSCALL_CHMOD_REGARGS
+	@_SYSCALL_CHMOD_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chmod = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_chmod"), @const("__NR_compat_chmod"))
+	@_SYSCALL_CHMOD_NAME
+	@_SYSCALL_CHMOD_REGARGS
+	@_SYSCALL_CHMOD_ARGSTR
+}
+
+probe nd_syscall.chmod.return = nd1_syscall.chmod.return!, nd2_syscall.chmod.return!, tp_syscall.chmod.return
+  { }
+  
+probe nd1_syscall.chmod.return = kprobe.function("sys_chmod").return ?
+{
+	@_SYSCALL_CHMOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.chmod.return = kprobe.function(@arch_syscall_prefix "sys_chmod").return ?
+{
+	@_SYSCALL_CHMOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.chmod.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_chmod"), @const("__NR_compat_chmod"))
+	@_SYSCALL_CHMOD_NAME
+	@SYSC_RETVALSTR($ret)
+}

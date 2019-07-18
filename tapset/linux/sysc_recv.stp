@@ -1,0 +1,241 @@
+# recv _______________________________________________________
+#
+# long sys_recv(int fd, void __user *ubuf, size_t size, unsigned flags)
+#
+# On some kernels, the recv() syscall goes through
+# sys_socketcall(), which then calls an inlined version of
+# sys_recv(). So, we need to probe sys_socketcall() also.
+#
+
+@define _SYSCALL_RECV_NAME
+%(
+	name = "recv"
+%)
+
+@define _SYSCALL_RECV_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %u, %s", s, buf_uaddr, len, flags_str)
+%)
+
+@define _SYSCALL_RECV_REGARGS
+%(
+	s = int_arg(1)
+	buf_uaddr = pointer_arg(2)
+	len = ulong_arg(3)
+	flags = uint_arg(4)
+%)
+
+@define _SYSCALL_SOCKETCALL_RECV_REGARGS
+%(
+	__args = &@ulong_cast(pointer_arg(2))
+	s = __int32(user_ulong(&@ulong_cast(__args)[0]))
+	buf_uaddr = user_ulong(&@ulong_cast(__args)[1])
+	len = user_ulong(&@ulong_cast(__args)[2])
+	flags = __uint32(user_ulong(&@ulong_cast(__args)[3]))
+%)
+
+@define _SYSCALL_COMPAT_SOCKETCALL_RECV_REGARGS
+%(
+	__args = &@uint_cast(pointer_arg(2))
+	s = user_int(&@uint_cast(__args)[0])
+	buf_uaddr = user_uint32(&@uint_cast(__args)[1])
+	len = user_uint32(&@uint_cast(__args)[2])
+	flags = user_uint32(&@uint_cast(__args)[3])
+%)
+
+probe syscall.recv = dw_syscall.recv !, nd_syscall.recv ? {}
+probe syscall.recv.return = dw_syscall.recv.return !, nd_syscall.recv.return ? {}
+
+# dw_recv _____________________________________________________
+
+probe dw_syscall.recv = __syscall.socketcall.recv ?,
+	__syscall.compat_socketcall.recv ?,
+	__syscall.recv ?
+{
+	@_SYSCALL_RECV_NAME
+	flags_str = _msg_flags_str(flags)
+	@_SYSCALL_RECV_ARGSTR
+}
+probe __syscall.socketcall.recv = kernel.function("sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_RECV")) next;
+	s = __int32(user_ulong(&@ulong_cast($args)[0]))
+	buf_uaddr = user_ulong(&@ulong_cast($args)[1])
+	len = user_ulong(&@ulong_cast($args)[2])
+	flags = __uint32(user_ulong(&@ulong_cast($args)[3]))
+}
+probe __syscall.compat_socketcall.recv =
+	kernel.function("compat_sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_RECV")) next;
+	s = user_int(&@uint_cast($args)[0])
+	buf_uaddr = user_uint32(&@uint_cast($args)[1])
+	len = user_uint32(&@uint_cast($args)[2])
+	flags = user_uint32(&@uint_cast($args)[3])
+}
+probe __syscall.recv = kernel.function("sys_recv").call ?
+{
+	@__syscall_gate(@const("__NR_recv"))
+	s = __int32($fd)
+	buf_uaddr = $ubuf
+	len = __ulong($size)
+	flags = __uint32($flags)
+}
+probe dw_syscall.recv.return = __syscall.socketcall.recv.return ?,
+	__syscall.recv.return ?
+{
+	@_SYSCALL_RECV_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.socketcall.recv.return =
+	kernel.function("sys_socketcall").return ?,
+	kernel.function("compat_sys_socketcall").return ?
+{
+	if (__int32(@entry($call)) != @const("SYS_RECV")) next;
+}
+probe __syscall.recv.return = kernel.function("sys_recv").return ?
+{
+	@__syscall_gate(@const("__NR_recv"))
+}
+
+# nd_recv _____________________________________________________
+
+probe nd_syscall.recv = nd1_syscall.recv!, nd2_syscall.recv!, tp_syscall.recv
+  { }
+
+probe nd1_syscall.recv = __nd1_syscall.recv ?,
+	__nd1_syscall.socketcall.recv ?,
+	__nd1_syscall.compat_socketcall.recv ?
+{
+	@_SYSCALL_RECV_NAME
+	flags_str = _msg_flags_str(flags)
+	@_SYSCALL_RECV_ARGSTR
+}
+probe __nd1_syscall.recv = kprobe.function("sys_recv").call ?
+{
+	asmlinkage()
+	@__syscall_gate(@const("__NR_recv"))
+	@_SYSCALL_RECV_REGARGS
+}
+probe __nd1_syscall.socketcall.recv = kprobe.function("sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_RECV")) next;
+	@_SYSCALL_SOCKETCALL_RECV_REGARGS
+}
+probe __nd1_syscall.compat_socketcall.recv =
+	kprobe.function("compat_sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_RECV")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_RECV_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.recv = __nd2_syscall.recv ?,
+	__nd2_syscall.socketcall.recv ?,
+	__nd2_syscall.compat_socketcall.recv ?
+{
+	@_SYSCALL_RECV_NAME
+	flags_str = _msg_flags_str(flags)
+	@_SYSCALL_RECV_ARGSTR
+}
+probe __nd2_syscall.recv = kprobe.function(@arch_syscall_prefix "sys_recv") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RECV_REGARGS
+}
+probe __nd2_syscall.socketcall.recv = kprobe.function(@arch_syscall_prefix "sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_RECV")) next;
+	@_SYSCALL_SOCKETCALL_RECV_REGARGS
+}
+probe __nd2_syscall.compat_socketcall.recv =
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_RECV")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_RECV_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.recv = __tp_syscall.recv ?,
+	__tp_syscall.socketcall.recv ?
+{
+	@_SYSCALL_RECV_NAME
+	flags_str = _msg_flags_str(flags)
+	@_SYSCALL_RECV_ARGSTR
+}
+probe __tp_syscall.recv = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_recv"))
+	@_SYSCALL_RECV_REGARGS
+}
+probe __tp_syscall.socketcall.recv = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_RECV")) next;
+	if (@__compat_task) {
+		@_SYSCALL_COMPAT_SOCKETCALL_RECV_REGARGS
+	}
+	else {
+		@_SYSCALL_SOCKETCALL_RECV_REGARGS
+	}
+}
+
+probe nd_syscall.recv.return = nd1_syscall.recv.return!, nd2_syscall.recv.return!, tp_syscall.recv.return
+  { }
+
+probe nd1_syscall.recv.return =	__nd1_syscall.recv.return ?,
+	__nd1_syscall.socketcall.recv.return ?
+{
+	@_SYSCALL_RECV_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.recv.return = kprobe.function("sys_recv").return ?
+{
+	@__syscall_gate(@const("__NR_recv"))
+}
+probe __nd1_syscall.socketcall.recv.return =
+	kprobe.function("sys_socketcall").return ?,
+	kprobe.function("compat_sys_socketcall").return ?
+{
+	if (@entry(__asmlinkage_int_arg(1)) != @const("SYS_RECV")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.recv.return =
+	kprobe.function(@arch_syscall_prefix "sys_recv").return ?,
+	__nd2_syscall.socketcall.recv.return ?
+{
+	@_SYSCALL_RECV_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.socketcall.recv.return =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SYS_RECV")) next;
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.recv.return = __tp_syscall.recv.return ?,
+	__tp_syscall.socketcall.recv.return ?
+{
+	@_SYSCALL_RECV_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.recv.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_recv"))
+}
+probe __tp_syscall.socketcall.recv.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_RECV")) next;
+}

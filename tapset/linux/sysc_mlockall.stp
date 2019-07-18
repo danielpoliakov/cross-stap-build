@@ -1,0 +1,95 @@
+# mlockall ___________________________________________________
+# long sys_mlockall(int flags)
+#
+
+@define _SYSCALL_MLOCKALL_NAME
+%(
+	name = "mlockall"
+%)
+
+@define _SYSCALL_MLOCKALL_ARGSTR
+%(
+	argstr = flags_str
+%)
+
+@define _SYSCALL_MLOCKALL_REGARGS
+%(
+	flags = int_arg(1)
+	flags_str = _mlockall_flags_str(flags)
+%)
+
+probe syscall.mlockall = dw_syscall.mlockall !, nd_syscall.mlockall ? {}
+probe syscall.mlockall.return = dw_syscall.mlockall.return !,
+                                nd_syscall.mlockall.return ? {}
+
+# dw_mlockall _____________________________________________________
+
+probe dw_syscall.mlockall = kernel.function("sys_mlockall").call ?
+{
+	@_SYSCALL_MLOCKALL_NAME
+	flags = __int32($flags)
+	flags_str = _mlockall_flags_str(flags)
+	@_SYSCALL_MLOCKALL_ARGSTR
+}
+probe dw_syscall.mlockall.return = kernel.function("sys_mlockall").return ?
+{
+	@_SYSCALL_MLOCKALL_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_mlockall _____________________________________________________
+
+probe nd_syscall.mlockall = nd1_syscall.mlockall!, nd2_syscall.mlockall!, tp_syscall.mlockall
+  { }
+
+probe nd1_syscall.mlockall = kprobe.function("sys_mlockall") ?
+{
+	@_SYSCALL_MLOCKALL_NAME
+	asmlinkage()
+	@_SYSCALL_MLOCKALL_REGARGS
+	@_SYSCALL_MLOCKALL_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mlockall = kprobe.function(@arch_syscall_prefix "sys_mlockall") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MLOCKALL_NAME
+	@_SYSCALL_MLOCKALL_REGARGS
+	@_SYSCALL_MLOCKALL_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mlockall = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mlockall"), @const("__NR_compat_mlockall"))
+	@_SYSCALL_MLOCKALL_NAME
+	@_SYSCALL_MLOCKALL_REGARGS
+	@_SYSCALL_MLOCKALL_ARGSTR
+}
+
+probe nd_syscall.mlockall.return = nd1_syscall.mlockall.return!, nd2_syscall.mlockall.return!, tp_syscall.mlockall.return
+  { }
+  
+probe nd1_syscall.mlockall.return = kprobe.function("sys_mlockall").return ?
+{
+	@_SYSCALL_MLOCKALL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.mlockall.return = kprobe.function(@arch_syscall_prefix "sys_mlockall").return ?
+{
+	@_SYSCALL_MLOCKALL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.mlockall.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_mlockall"), @const("__NR_compat_mlockall"))
+	@_SYSCALL_MLOCKALL_NAME
+	@SYSC_RETVALSTR($ret)
+}

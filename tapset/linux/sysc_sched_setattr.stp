@@ -1,0 +1,103 @@
+# sched_setattr ______________________________________________
+#
+# SYSCALL_DEFINE3(sched_setattr, pid_t, pid, struct sched_attr __user *, uattr,
+#                 unsigned int, flags)
+#
+
+@define _SYSCALL_SCHED_SETATTR_NAME
+%(
+	name = "sched_setattr"
+%)
+
+@define _SYSCALL_SCHED_SETATTR_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %u", pid, sched_attr_str, flags)
+%)
+
+@define _SYSCALL_SCHED_SETATTR_REGARGS
+%(
+	pid = int_arg(1)
+	sched_attr_uaddr = pointer_arg(2)
+	sched_attr_str = _struct_sched_attr_u(sched_attr_uaddr)
+	flags = uint_arg(3)
+%)
+
+probe syscall.sched_setattr = dw_syscall.sched_setattr !, nd_syscall.sched_setattr ? {}
+probe syscall.sched_setattr.return = dw_syscall.sched_setattr.return !,
+                                     nd_syscall.sched_setattr.return ? {}
+
+# dw_sched_setattr _____________________________________________________
+
+probe dw_syscall.sched_setattr = kernel.function("sys_sched_setattr") ?
+{
+	@_SYSCALL_SCHED_SETATTR_NAME
+	pid = __int32($pid)
+	sched_attr_uaddr = $uattr
+	sched_attr_str = _struct_sched_attr_u(sched_attr_uaddr)
+	flags = __uint32($flags)
+	@_SYSCALL_SCHED_SETATTR_ARGSTR
+}
+probe dw_syscall.sched_setattr.return =
+	kernel.function("sys_sched_setattr").return ?
+{
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sched_setattr _____________________________________________________
+
+probe nd_syscall.sched_setattr = nd1_syscall.sched_setattr!, nd2_syscall.sched_setattr!, tp_syscall.sched_setattr
+  { }
+
+probe nd1_syscall.sched_setattr = kprobe.function("sys_sched_setattr") ?
+{
+	@_SYSCALL_SCHED_SETATTR_NAME
+	asmlinkage()
+	@_SYSCALL_SCHED_SETATTR_REGARGS
+	@_SYSCALL_SCHED_SETATTR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_setattr = kprobe.function(@arch_syscall_prefix "sys_sched_setattr") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@_SYSCALL_SCHED_SETATTR_REGARGS
+	@_SYSCALL_SCHED_SETATTR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_setattr = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_setattr"), @const("__NR_compat_sched_setattr"))
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@_SYSCALL_SCHED_SETATTR_REGARGS
+	@_SYSCALL_SCHED_SETATTR_ARGSTR
+}
+
+probe nd_syscall.sched_setattr.return = nd1_syscall.sched_setattr.return!, nd2_syscall.sched_setattr.return!, tp_syscall.sched_setattr.return
+  { }
+  
+probe nd1_syscall.sched_setattr.return =
+	kprobe.function("sys_sched_setattr").return ?
+{
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sched_setattr.return = kprobe.function(@arch_syscall_prefix "sys_sched_setattr").return ?
+{
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sched_setattr.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sched_setattr"), @const("__NR_compat_sched_setattr"))
+	@_SYSCALL_SCHED_SETATTR_NAME
+	@SYSC_RETVALSTR($ret)
+}

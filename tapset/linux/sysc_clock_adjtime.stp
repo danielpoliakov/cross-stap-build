@@ -1,0 +1,158 @@
+# clock_adjtime ______________________________________________
+# SYSCALL_DEFINE2(clock_adjtime, const clockid_t, which_clock,
+#                 struct timex __user *, utx)
+# long compat_sys_clock_adjtime(clockid_t which_clock,
+#                               struct compat_timex __user *utp)
+#
+
+@define _SYSCALL_CLOCK_ADJTIME_NAME
+%(
+	name = "clock_adjtime"
+%)
+
+@define _SYSCALL_CLOCK_ADJTIME_ARGSTR
+%(
+	argstr = sprintf("%s, %s", clk_id_str, tx_uaddr_str)
+%)
+
+@define _SYSCALL_CLOCK_ADJTIME_REGARGS
+%(
+	clk_id = int_arg(1)
+	clk_id_str = _get_wc_str(clk_id)
+	tx_uaddr = pointer_arg(2)
+%)
+
+probe syscall.clock_adjtime = dw_syscall.clock_adjtime !, nd_syscall.clock_adjtime ? {}
+probe syscall.clock_adjtime.return = dw_syscall.clock_adjtime.return !, nd_syscall.clock_adjtime.return ? {}
+
+# dw_clock_adjtime _____________________________________________________
+
+probe dw_syscall.clock_adjtime = __syscall.clock_adjtime ?,
+	__syscall.compat_clock_adjtime ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+}
+probe __syscall.clock_adjtime = kernel.function("sys_clock_adjtime").call
+{
+	@__syscall_gate_compat_simple
+	clk_id = __int32($which_clock)
+	clk_id_str = _get_wc_str(clk_id)
+	tx_uaddr = @choose_defined($utx, $ktx)
+	tx_uaddr_str = _struct_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+probe __syscall.compat_clock_adjtime =
+	kernel.function("compat_sys_clock_adjtime").call ?
+{
+	clk_id = __int32($which_clock)
+	clk_id_str = _get_wc_str(clk_id)
+	tx_uaddr = $utp
+	tx_uaddr_str = _struct_compat_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+probe dw_syscall.clock_adjtime.return = __syscall.clock_adjtime.return ?,
+	kernel.function("compat_sys_clock_adjtime").return ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.clock_adjtime.return =
+	kernel.function("sys_clock_adjtime").return
+{
+	@__syscall_gate_compat_simple
+}
+
+# nd_clock_adjtime _____________________________________________________
+
+probe nd_syscall.clock_adjtime = nd1_syscall.clock_adjtime!, nd2_syscall.clock_adjtime!, tp_syscall.clock_adjtime
+  { }
+
+probe nd1_syscall.clock_adjtime = __nd1_syscall.clock_adjtime ?,
+	__nd1_syscall.compat_clock_adjtime ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+}
+probe __nd1_syscall.clock_adjtime = kprobe.function("sys_clock_adjtime").call
+{
+	@__syscall_gate_compat_simple
+	asmlinkage()
+	@_SYSCALL_CLOCK_ADJTIME_REGARGS
+	tx_uaddr_str = _struct_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+probe __nd1_syscall.compat_clock_adjtime =
+	kprobe.function("compat_sys_clock_adjtime").call ?
+{
+	asmlinkage()
+	@_SYSCALL_CLOCK_ADJTIME_REGARGS
+	tx_uaddr_str = _struct_compat_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd1_syscall.clock_adjtime = __nd2_syscall.clock_adjtime ?,
+	__nd2_syscall.compat_clock_adjtime ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+}
+probe __nd2_syscall.clock_adjtime = kprobe.function(@arch_syscall_prefix "sys_clock_adjtime").call
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CLOCK_ADJTIME_REGARGS
+	tx_uaddr_str = _struct_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+probe __nd2_syscall.compat_clock_adjtime =
+	kprobe.function(@arch_syscall_prefix "compat_sys_clock_adjtime").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CLOCK_ADJTIME_REGARGS
+	tx_uaddr_str = _struct_compat_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_adjtime = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_adjtime"), @const("__NR_compat_clock_adjtime"))
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+	@_SYSCALL_CLOCK_ADJTIME_REGARGS
+	if (@__compat_task)
+		tx_uaddr_str = _struct_compat_timex_u(tx_uaddr)
+	else
+		tx_uaddr_str = _struct_timex_u(tx_uaddr)
+	@_SYSCALL_CLOCK_ADJTIME_ARGSTR
+}
+
+probe nd_syscall.clock_adjtime.return = nd1_syscall.clock_adjtime.return!, nd2_syscall.clock_adjtime.return!, tp_syscall.clock_adjtime.return
+  { }
+
+probe nd1_syscall.clock_adjtime.return = __nd1_syscall.clock_adjtime.return ?,
+	kprobe.function("compat_sys_clock_adjtime").return ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.clock_adjtime.return =
+	kprobe.function("sys_clock_adjtime").return
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.clock_adjtime.return = kprobe.function(@arch_syscall_prefix "sys_clock_adjtime").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_clock_adjtime").return ?
+{
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.clock_adjtime.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_clock_adjtime"), @const("__NR_compat_clock_adjtime"))
+	@_SYSCALL_CLOCK_ADJTIME_NAME
+	@SYSC_RETVALSTR($ret)
+}

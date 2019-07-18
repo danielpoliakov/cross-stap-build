@@ -1,0 +1,105 @@
+# set_thread_area ____________________________________________
+/*
+ * asmlinkage int
+ * sys_set_thread_area(struct user_desc __user *u_info)
+ * asmlinkage long sys32_set_thread_area(struct user_desc __user *u_info)
+ */
+
+@define _SYSCALL_SET_THREAD_AREA_NAME
+%(
+	name = "set_thread_area"
+%)
+
+@define _SYSCALL_SET_THREAD_AREA_ARGSTR
+%(
+	argstr = sprintf("%s", u_info_str)
+%)
+
+@define _SYSCALL_SET_THREAD_AREA_REGARGS
+%(
+	u_info_uaddr = pointer_arg(1)
+	u_info_str = _struct_user_desc_u(u_info_uaddr)
+%)
+
+probe syscall.set_thread_area = dw_syscall.set_thread_area !, nd_syscall.set_thread_area ? {}
+probe syscall.set_thread_area.return = dw_syscall.set_thread_area.return !, nd_syscall.set_thread_area.return ? {}
+
+# dw_set_thread_area _____________________________________________________
+
+probe dw_syscall.set_thread_area = kernel.function("sys_set_thread_area") ?,
+	kernel.function("sys32_set_thread_area") ?
+{
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	u_info_uaddr = $u_info
+	u_info_str = _struct_user_desc_u(u_info_uaddr)
+	@_SYSCALL_SET_THREAD_AREA_ARGSTR
+}
+probe dw_syscall.set_thread_area.return =
+	kernel.function("sys_set_thread_area").return ?,
+	kernel.function("sys32_set_thread_area").return ?
+{
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_set_thread_area _____________________________________________________
+
+probe nd_syscall.set_thread_area = nd1_syscall.set_thread_area!, nd2_syscall.set_thread_area!, tp_syscall.set_thread_area
+  { }
+
+probe nd1_syscall.set_thread_area = kprobe.function("sys_set_thread_area") ?,
+	kprobe.function("sys32_set_thread_area") ?
+{
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	asmlinkage()
+	@_SYSCALL_SET_THREAD_AREA_REGARGS
+	@_SYSCALL_SET_THREAD_AREA_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.set_thread_area =
+	kprobe.function(@arch_syscall_prefix "sys_set_thread_area") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@_SYSCALL_SET_THREAD_AREA_REGARGS
+	@_SYSCALL_SET_THREAD_AREA_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.set_thread_area = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_set_thread_area"), @const("__NR_ia32_set_thread_area"))
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@_SYSCALL_SET_THREAD_AREA_REGARGS
+	@_SYSCALL_SET_THREAD_AREA_ARGSTR
+}
+
+probe nd_syscall.set_thread_area.return = nd1_syscall.set_thread_area.return!, nd2_syscall.set_thread_area.return!, tp_syscall.set_thread_area.return
+  { }
+
+probe nd1_syscall.set_thread_area.return =
+	kprobe.function("sys_set_thread_area").return ?,
+	kprobe.function("sys32_set_thread_area").return ?
+{
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.set_thread_area.return =
+	kprobe.function(@arch_syscall_prefix "sys_set_thread_area").return ?
+{
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.set_thread_area.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_set_thread_area"), @const("__NR_ia32_set_thread_area"))
+	@_SYSCALL_SET_THREAD_AREA_NAME
+	@SYSC_RETVALSTR($ret)
+}

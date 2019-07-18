@@ -1,0 +1,99 @@
+# getcpu _____________________________________________________
+# getcpu() was added in kernel 2.6.19 for x86_64 and i386.
+# Note that the 'tcache' argument is unused since Linux 2.6.24.
+#
+# SYSCALL_DEFINE3(getcpu, unsigned __user *, cpup, unsigned __user *, nodep,
+#		  struct getcpu_cache __user *, unused)
+
+@define _SYSCALL_GETCPU_NAME
+%(
+	name = "getcpu"
+%)
+
+@define _SYSCALL_GETCPU_ARGSTR
+%(
+	argstr = sprintf("%p, %p, %p", cpu_uaddr, node_uaddr, tcache_uaddr)
+%)
+
+@define _SYSCALL_GETCPU_REGARGS
+%(
+	cpu_uaddr = pointer_arg(1)
+	node_uaddr = pointer_arg(2)
+	tcache_uaddr = pointer_arg(3)
+%)
+
+probe syscall.getcpu = dw_syscall.getcpu !, nd_syscall.getcpu ? {}
+probe syscall.getcpu.return = dw_syscall.getcpu.return !, nd_syscall.getcpu.return ? {}
+
+# dw_getcpu _____________________________________________________
+
+probe dw_syscall.getcpu = kernel.function("sys_getcpu").call ?
+{
+	@_SYSCALL_GETCPU_NAME
+	cpu_uaddr = $cpup
+	node_uaddr = $nodep
+	tcache_uaddr = @choose_defined($unused, $cache)
+	@_SYSCALL_GETCPU_ARGSTR
+}
+probe dw_syscall.getcpu.return = kernel.function("sys_getcpu").return ?
+{
+	@_SYSCALL_GETCPU_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getcpu _____________________________________________________
+
+probe nd_syscall.getcpu = nd1_syscall.getcpu!, nd2_syscall.getcpu!, tp_syscall.getcpu
+  { }
+
+probe nd1_syscall.getcpu = kprobe.function("sys_getcpu") ?
+{
+	@_SYSCALL_GETCPU_NAME
+	asmlinkage()
+	@_SYSCALL_GETCPU_REGARGS
+	@_SYSCALL_GETCPU_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getcpu = kprobe.function(@arch_syscall_prefix "sys_getcpu") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETCPU_NAME
+	@_SYSCALL_GETCPU_REGARGS
+	@_SYSCALL_GETCPU_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getcpu = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getcpu"), @const("__NR_compat_getcpu"))
+	@_SYSCALL_GETCPU_NAME
+	@_SYSCALL_GETCPU_REGARGS
+	@_SYSCALL_GETCPU_ARGSTR
+}
+
+probe nd_syscall.getcpu.return = nd1_syscall.getcpu.return!, nd2_syscall.getcpu.return!, tp_syscall.getcpu.return
+  { }
+  
+probe nd1_syscall.getcpu.return = kprobe.function("sys_getcpu").return ?
+{
+	@_SYSCALL_GETCPU_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getcpu.return = kprobe.function(@arch_syscall_prefix "sys_getcpu").return ?
+{
+	@_SYSCALL_GETCPU_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getcpu.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getcpu"), @const("__NR_compat_getcpu"))
+	@_SYSCALL_GETCPU_NAME
+	@SYSC_RETVALSTR($ret)
+}

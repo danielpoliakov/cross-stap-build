@@ -1,0 +1,100 @@
+# fchmod _____________________________________________________
+# long sys_fchmod(unsigned int fd, mode_t mode)
+
+@define _SYSCALL_FCHMOD_NAME
+%(
+	name = "fchmod"
+%)
+
+@define _SYSCALL_FCHMOD_ARGSTR
+%(
+	argstr = sprintf("%d, %#o", fildes, mode)
+%)
+
+@define _SYSCALL_FCHMOD_REGARGS
+%(
+	fildes = int_arg(1)
+	mode = uint_arg(2)
+%)
+
+probe syscall.fchmod = dw_syscall.fchmod !, nd_syscall.fchmod ? {}
+probe syscall.fchmod.return = dw_syscall.fchmod.return !, nd_syscall.fchmod.return ? {}
+
+# dw_fchmod _____________________________________________________
+
+probe dw_syscall.fchmod = kernel.function("sys_fchmod").call
+{
+	@_SYSCALL_FCHMOD_NAME
+	fildes = __int32($fd)
+%( arch == "i386" %?
+	# Why @cast() here? Even though the user passes an unsigned
+	# int (32-bits), some kernels (2.6.32-431.el6.i686) get an
+	# unsigned short (16-bits).
+	mode = @uint_cast(&$mode)
+%:
+	mode = __uint32($mode)
+%)
+	@_SYSCALL_FCHMOD_ARGSTR
+}
+probe dw_syscall.fchmod.return = kernel.function("sys_fchmod").return
+{
+	@_SYSCALL_FCHMOD_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fchmod _____________________________________________________
+
+probe nd_syscall.fchmod = nd1_syscall.fchmod!, nd2_syscall.fchmod!, tp_syscall.fchmod
+  { }
+
+probe nd1_syscall.fchmod = kprobe.function("sys_fchmod") ?
+{
+	@_SYSCALL_FCHMOD_NAME
+	asmlinkage()
+	@_SYSCALL_FCHMOD_REGARGS
+	@_SYSCALL_FCHMOD_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchmod = kprobe.function(@arch_syscall_prefix "sys_fchmod") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FCHMOD_NAME
+	@_SYSCALL_FCHMOD_REGARGS
+	@_SYSCALL_FCHMOD_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchmod = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchmod"), @const("__NR_compat_fchmod"))
+	@_SYSCALL_FCHMOD_NAME
+	@_SYSCALL_FCHMOD_REGARGS
+	@_SYSCALL_FCHMOD_ARGSTR
+}
+
+probe nd_syscall.fchmod.return = nd1_syscall.fchmod.return!, nd2_syscall.fchmod.return!, tp_syscall.fchmod.return
+  { }
+  
+probe nd1_syscall.fchmod.return = kprobe.function("sys_fchmod").return ?
+{
+	@_SYSCALL_FCHMOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fchmod.return = kprobe.function(@arch_syscall_prefix "sys_fchmod").return ?
+{
+	@_SYSCALL_FCHMOD_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fchmod.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fchmod"), @const("__NR_compat_fchmod"))
+	@_SYSCALL_FCHMOD_NAME
+	@SYSC_RETVALSTR($ret)
+}

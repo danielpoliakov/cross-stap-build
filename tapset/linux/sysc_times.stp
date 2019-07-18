@@ -1,0 +1,102 @@
+# times ______________________________________________________
+#
+# long sys_times(struct tms __user * tbuf)
+# long compat_sys_times(struct compat_tms __user *tbuf)
+
+@define _SYSCALL_TIMES_NAME
+%(
+	name = "times"
+%)
+
+@define _SYSCALL_TIMES_ARGSTR
+%(
+	argstr = sprintf("%s", buf_str)
+%)
+
+@define _SYSCALL_TIMES_REGARGS
+%(
+	buf_uaddr = pointer_arg(1)
+	buf_str = _struct_tms_u(buf_uaddr)
+%)
+
+probe syscall.times = dw_syscall.times !, nd_syscall.times ? {}
+probe syscall.times.return = dw_syscall.times.return !,
+                             nd_syscall.times.return ? {}
+
+# dw_times _____________________________________________________
+
+probe dw_syscall.times = kernel.function("compat_sys_times").call ?,
+                      kernel.function("sys_times").call ?
+{
+	@_SYSCALL_TIMES_NAME
+	buf_uaddr = @__pointer($tbuf)
+	buf_str = _struct_tms_u(buf_uaddr)
+	@_SYSCALL_TIMES_ARGSTR
+}
+probe dw_syscall.times.return = kernel.function("compat_sys_times").return ?,
+                             kernel.function("sys_times").return ?
+{
+	@_SYSCALL_TIMES_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_times _____________________________________________________
+
+probe nd_syscall.times = nd1_syscall.times!, nd2_syscall.times!, tp_syscall.times
+  { }
+
+probe nd1_syscall.times = kprobe.function("compat_sys_times") ?,
+                          kprobe.function("sys_times") ?
+{
+	@_SYSCALL_TIMES_NAME
+	asmlinkage()
+	@_SYSCALL_TIMES_REGARGS
+	@_SYSCALL_TIMES_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.times = kprobe.function(@arch_syscall_prefix "compat_sys_times") ?,
+                          kprobe.function(@arch_syscall_prefix "sys_times") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TIMES_NAME
+	@_SYSCALL_TIMES_REGARGS
+	@_SYSCALL_TIMES_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.times = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_times"), @const("__NR_compat_times"))
+	@_SYSCALL_TIMES_NAME
+	@_SYSCALL_TIMES_REGARGS
+	@_SYSCALL_TIMES_ARGSTR
+}
+
+probe nd_syscall.times.return = nd1_syscall.times.return!, nd2_syscall.times.return!, tp_syscall.times.return
+  { }
+
+probe nd1_syscall.times.return = kprobe.function("compat_sys_times").return ?,
+                                 kprobe.function("sys_times").return ?
+{
+	@_SYSCALL_TIMES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.times.return = kprobe.function(@arch_syscall_prefix "compat_sys_times").return ?,
+                                 kprobe.function(@arch_syscall_prefix "sys_times").return ?
+{
+	@_SYSCALL_TIMES_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.times.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_times"), @const("__NR_compat_times"))
+	@_SYSCALL_TIMES_NAME
+	@SYSC_RETVALSTR($ret)
+}

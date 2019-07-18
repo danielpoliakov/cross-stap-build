@@ -1,0 +1,107 @@
+# setdomainname ______________________________________________
+#
+# asmlinkage long
+# sys_setdomainname(char __user *name,
+#			 int len)
+#
+
+@define _SYSCALL_SETDOMAINNAME_NAME
+%(
+	name = "setdomainname"
+%)
+
+@define _SYSCALL_SETDOMAINNAME_ARGSTR
+%(
+	argstr = sprintf("%s, %d", domainname_str, len)
+%)
+
+@define _SYSCALL_SETDOMAINNAME_REGARGS
+%(
+	domainname_uaddr = pointer_arg(1)
+%( systemtap_v <= "2.8" %?
+        hostname_uaddr = domainname_uaddr
+%)
+	domainname_str = user_string_quoted(domainname_uaddr)
+	len = int_arg(2)
+%)
+
+probe syscall.setdomainname = dw_syscall.setdomainname !,
+                              nd_syscall.setdomainname ? {}
+probe syscall.setdomainname.return = dw_syscall.setdomainname.return !,
+                                     nd_syscall.setdomainname.return ? {}
+
+# dw_setdomainname _____________________________________________________
+
+probe dw_syscall.setdomainname = kernel.function("sys_setdomainname").call
+{
+	@_SYSCALL_SETDOMAINNAME_NAME
+	domainname_uaddr = $name
+%( systemtap_v <= "2.8" %?
+	hostname_uaddr = domainname_uaddr
+%)
+        domainname_str = user_string_quoted(domainname_uaddr)
+	len = __int32($len)
+	@_SYSCALL_SETDOMAINNAME_ARGSTR
+}
+probe dw_syscall.setdomainname.return = kernel.function("sys_setdomainname").return
+{
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_setdomainname _____________________________________________________
+
+probe nd_syscall.setdomainname = nd1_syscall.setdomainname!, nd2_syscall.setdomainname!, tp_syscall.setdomainname
+  { }
+
+probe nd1_syscall.setdomainname = kprobe.function("sys_setdomainname") ?
+{
+	@_SYSCALL_SETDOMAINNAME_NAME
+	asmlinkage()
+	@_SYSCALL_SETDOMAINNAME_REGARGS
+	@_SYSCALL_SETDOMAINNAME_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setdomainname = kprobe.function(@arch_syscall_prefix "sys_setdomainname") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@_SYSCALL_SETDOMAINNAME_REGARGS
+	@_SYSCALL_SETDOMAINNAME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setdomainname = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_setdomainname"), @const("__NR_compat_setdomainname"))
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@_SYSCALL_SETDOMAINNAME_REGARGS
+	@_SYSCALL_SETDOMAINNAME_ARGSTR
+}
+
+probe nd_syscall.setdomainname.return = nd1_syscall.setdomainname.return!, nd2_syscall.setdomainname.return!, tp_syscall.setdomainname.return
+  { }
+  
+probe nd1_syscall.setdomainname.return = kprobe.function("sys_setdomainname").return ?
+{
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setdomainname.return = kprobe.function(@arch_syscall_prefix "sys_setdomainname").return ?
+{
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setdomainname.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_setdomainname"), @const("__NR_compat_setdomainname"))
+	@_SYSCALL_SETDOMAINNAME_NAME
+	@SYSC_RETVALSTR($ret)
+}

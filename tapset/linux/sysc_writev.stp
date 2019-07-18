@@ -1,0 +1,111 @@
+# writev _____________________________________________________
+#
+# ssize_t sys_writev(unsigned long fd,
+#                    const struct iovec __user *vec,
+#                    unsigned long vlen)
+# ssize_t compat_sys_writev(unsigned long fd,
+#                           const struct compat_iovec __user *vec,
+#                           unsigned long vlen)
+#
+
+@define _SYSCALL_WRITEV_NAME
+%(
+	name = "writev"
+%)
+
+@define _SYSCALL_WRITEV_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %d", fd, vector_uaddr, count)
+%)
+
+@define _SYSCALL_WRITEV_REGARGS
+%(
+	vector_uaddr = pointer_arg(2)
+	count = int_arg(3)
+	fd = int_arg(1)
+%)
+
+probe syscall.writev = dw_syscall.writev !, nd_syscall.writev ? {}
+probe syscall.writev.return = dw_syscall.writev.return !,
+                              nd_syscall.writev.return ? {}
+
+# dw_writev _____________________________________________________
+
+probe dw_syscall.writev = kernel.function("compat_sys_writev").call ?,
+                       kernel.function("sys_writev").call
+{
+	@_SYSCALL_WRITEV_NAME
+	vector_uaddr = $vec
+	count = __int32($vlen)
+	# Although the kernel gets an unsigned long fd, on the
+	# user-side it is a signed int.  Fix this.
+	fd = __int32($fd)
+	@_SYSCALL_WRITEV_ARGSTR
+}
+probe dw_syscall.writev.return = kernel.function("compat_sys_writev").return ?,
+                              kernel.function("sys_writev").return
+{
+	@_SYSCALL_WRITEV_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_writev _____________________________________________________
+
+probe nd_syscall.writev = nd1_syscall.writev!, nd2_syscall.writev!, tp_syscall.writev
+  { }
+
+probe nd1_syscall.writev = kprobe.function("compat_sys_writev") ?,
+                           kprobe.function("sys_writev") ?
+{
+	@_SYSCALL_WRITEV_NAME
+	asmlinkage()
+	@_SYSCALL_WRITEV_REGARGS
+	@_SYSCALL_WRITEV_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.writev = kprobe.function(@arch_syscall_prefix "compat_sys_writev") ?,
+                           kprobe.function(@arch_syscall_prefix "sys_writev") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_WRITEV_NAME
+	@_SYSCALL_WRITEV_REGARGS
+	@_SYSCALL_WRITEV_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.writev = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_writev"), @const("__NR_compat_writev"))
+	@_SYSCALL_WRITEV_NAME
+	@_SYSCALL_WRITEV_REGARGS
+	@_SYSCALL_WRITEV_ARGSTR
+}
+
+probe nd_syscall.writev.return = nd1_syscall.writev.return!, nd2_syscall.writev.return!, tp_syscall.writev.return
+  { }
+
+probe nd1_syscall.writev.return = kprobe.function("compat_sys_writev").return ?,
+                                  kprobe.function("sys_writev").return ?
+{
+	@_SYSCALL_WRITEV_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.writev.return = kprobe.function(@arch_syscall_prefix "compat_sys_writev").return ?,
+                                  kprobe.function(@arch_syscall_prefix "sys_writev").return ?
+{
+	@_SYSCALL_WRITEV_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.writev.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_writev"), @const("__NR_compat_writev"))
+	@_SYSCALL_WRITEV_NAME
+	@SYSC_RETVALSTR($ret)
+}

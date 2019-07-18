@@ -1,0 +1,1 @@
+probe prometheus = procfs("__prometheus").read.maxsize(0x10000) { }

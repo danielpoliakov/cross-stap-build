@@ -1,0 +1,130 @@
+# lchown _____________________________________________________
+# long sys_lchown(const char __user * filename, uid_t user, gid_t group)
+#
+
+@define _SYSCALL_LCHOWN_NAME
+%(
+	name = "lchown"
+%)
+
+@define _SYSCALL_LCHOWN_ARGSTR
+%(
+	argstr = sprintf("%s, %d, %d", path, owner, group)
+%)
+
+@define _SYSCALL_LCHOWN_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	owner = __int32(uint_arg(2))
+	group = __int32(uint_arg(3))
+%)
+
+probe syscall.lchown = dw_syscall.lchown !, nd_syscall.lchown ? {}
+probe syscall.lchown.return = dw_syscall.lchown.return !, nd_syscall.lchown.return ? {}
+
+# dw_lchown _____________________________________________________
+
+probe dw_syscall.lchown = kernel.function("sys_lchown").call
+{
+	// Avoid lchown16() calling lchown().
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_ia32_lchown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	path = user_string_quoted($filename)
+	owner = __int32($user)
+	group = __int32($group)
+	@_SYSCALL_LCHOWN_ARGSTR
+}
+probe dw_syscall.lchown.return = kernel.function("sys_lchown").return
+{
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_ia32_lchown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_lchown _____________________________________________________
+
+probe nd_syscall.lchown = nd1_syscall.lchown!, nd2_syscall.lchown!, tp_syscall.lchown
+  { }
+
+probe nd1_syscall.lchown = kprobe.function("sys_lchown") ?
+{
+	// Avoid lchown16() calling lchown().
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_ia32_lchown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	asmlinkage()
+	@_SYSCALL_LCHOWN_REGARGS
+	@_SYSCALL_LCHOWN_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lchown = kprobe.function(@arch_syscall_prefix "sys_lchown") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_LCHOWN_NAME
+	@_SYSCALL_LCHOWN_REGARGS
+	@_SYSCALL_LCHOWN_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lchown = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_compat_lchown32"))
+%:
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	@_SYSCALL_LCHOWN_REGARGS
+	@_SYSCALL_LCHOWN_ARGSTR
+}
+
+probe nd_syscall.lchown.return = nd1_syscall.lchown.return!, nd2_syscall.lchown.return!, tp_syscall.lchown.return
+  { }
+  
+probe nd1_syscall.lchown.return = kprobe.function("sys_lchown").return ?
+{
+%( arch == "x86_64" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_ia32_lchown32"))
+%)
+%( arch == "i386" %?
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.lchown.return = kprobe.function(@arch_syscall_prefix "sys_lchown").return ?
+{
+	@_SYSCALL_LCHOWN_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.lchown.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+%( CONFIG_64BIT == "y" %?
+	@__syscall_compat_gate(@const("__NR_lchown"), @const("__NR_compat_lchown32"))
+%:
+	@__syscall_gate(@const("__NR_lchown32"))
+%)
+	@_SYSCALL_LCHOWN_NAME
+	@SYSC_RETVALSTR($ret)
+}

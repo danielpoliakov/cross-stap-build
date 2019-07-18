@@ -1,0 +1,95 @@
+# memfd_create _____________________________________________________
+# long sys_memfd_create (const char __user* uname, unsigned int flags)
+
+@define _SYSCALL_MEMFD_CREATE_NAME
+%(
+	name = "memfd_create"
+%)
+
+@define _SYSCALL_MEMFD_CREATE_ARGSTR
+%(
+	argstr = sprintf("%s, %s", uname, flags_str)
+%)
+
+@define _SYSCALL_MEMFD_CREATE_REGARGS
+%(
+	uname = user_string_quoted(pointer_arg(1))
+	flags = uint_arg(2)
+	flags_str = _mfd_flags_str(uint_arg(2))
+%)
+
+probe syscall.memfd_create = dw_syscall.memfd_create !, nd_syscall.memfd_create ? {}
+probe syscall.memfd_create.return = dw_syscall.memfd_create.return !, nd_syscall.memfd_create.return ? {}
+
+# dw_memfd_create _____________________________________________________
+
+probe dw_syscall.memfd_create = kernel.function("sys_memfd_create").call ?
+{
+	@_SYSCALL_MEMFD_CREATE_NAME
+	uname = user_string_quoted($uname)
+	flags = $flags
+	flags_str = _mfd_flags_str($flags)
+	@_SYSCALL_MEMFD_CREATE_ARGSTR
+}
+probe dw_syscall.memfd_create.return = kernel.function("sys_memfd_create").return ?
+{
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_memfd_create _____________________________________________________
+
+probe nd_syscall.memfd_create = nd1_syscall.memfd_create!, nd2_syscall.memfd_create!, tp_syscall.memfd_create
+  { }
+
+probe nd1_syscall.memfd_create = kprobe.function("sys_memfd_create") ?
+{
+	@_SYSCALL_MEMFD_CREATE_NAME
+	asmlinkage()
+	@_SYSCALL_MEMFD_CREATE_REGARGS
+	@_SYSCALL_MEMFD_CREATE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.memfd_create = kprobe.function(@arch_syscall_prefix "sys_memfd_create") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@_SYSCALL_MEMFD_CREATE_REGARGS
+	@_SYSCALL_MEMFD_CREATE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.memfd_create = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_memfd_create"), @const("__NR_compat_memfd_create"))
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@_SYSCALL_MEMFD_CREATE_REGARGS
+	@_SYSCALL_MEMFD_CREATE_ARGSTR
+}
+
+probe nd_syscall.memfd_create.return = nd1_syscall.memfd_create.return!, nd2_syscall.memfd_create.return!, tp_syscall.memfd_create.return
+  { }
+  
+probe nd1_syscall.memfd_create.return = kprobe.function("sys_memfd_create").return ?
+{
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.memfd_create.return = kprobe.function(@arch_syscall_prefix "sys_memfd_create").return ?
+{
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.memfd_create.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_memfd_create"), @const("__NR_compat_memfd_create"))
+	@_SYSCALL_MEMFD_CREATE_NAME
+	@SYSC_RETVALSTR($ret)
+}

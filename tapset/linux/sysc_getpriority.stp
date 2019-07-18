@@ -1,0 +1,94 @@
+# getpriority ________________________________________________
+# long sys_getpriority(int which, int who)
+
+@define _SYSCALL_GETPRIORITY_NAME
+%(
+	name = "getpriority"
+%)
+
+@define _SYSCALL_GETPRIORITY_ARGSTR
+%(
+	argstr = sprintf("%s, %d", _priority_which_str(which), who)
+%)
+
+@define _SYSCALL_GETPRIORITY_REGARGS
+%(
+	which = int_arg(1)
+	who = int_arg(2)
+%)
+
+probe syscall.getpriority = dw_syscall.getpriority !, nd_syscall.getpriority ? {}
+probe syscall.getpriority.return = dw_syscall.getpriority.return !,
+                                   nd_syscall.getpriority.return ? {}
+
+# dw_getpriority _____________________________________________________
+
+probe dw_syscall.getpriority = kernel.function("sys_getpriority").call
+{
+	@_SYSCALL_GETPRIORITY_NAME
+	which = __int32($which)
+	who = __int32($who)
+	@_SYSCALL_GETPRIORITY_ARGSTR
+}
+probe dw_syscall.getpriority.return = kernel.function("sys_getpriority").return
+{
+	@_SYSCALL_GETPRIORITY_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getpriority _____________________________________________________
+
+probe nd_syscall.getpriority = nd1_syscall.getpriority!, nd2_syscall.getpriority!, tp_syscall.getpriority
+  { }
+
+probe nd1_syscall.getpriority = kprobe.function("sys_getpriority") ?
+{
+	@_SYSCALL_GETPRIORITY_NAME
+	asmlinkage()
+	@_SYSCALL_GETPRIORITY_REGARGS
+	@_SYSCALL_GETPRIORITY_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getpriority = kprobe.function(@arch_syscall_prefix "sys_getpriority") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETPRIORITY_NAME
+	@_SYSCALL_GETPRIORITY_REGARGS
+	@_SYSCALL_GETPRIORITY_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getpriority = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getpriority"), @const("__NR_compat_getpriority"))
+	@_SYSCALL_GETPRIORITY_NAME
+	@_SYSCALL_GETPRIORITY_REGARGS
+	@_SYSCALL_GETPRIORITY_ARGSTR
+}
+
+probe nd_syscall.getpriority.return = nd1_syscall.getpriority.return!, nd2_syscall.getpriority.return!, tp_syscall.getpriority.return
+  { }
+  
+probe nd1_syscall.getpriority.return = kprobe.function("sys_getpriority").return ?
+{
+	@_SYSCALL_GETPRIORITY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getpriority.return = kprobe.function(@arch_syscall_prefix "sys_getpriority").return ?
+{
+	@_SYSCALL_GETPRIORITY_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getpriority.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_getpriority"), @const("__NR_compat_getpriority"))
+	@_SYSCALL_GETPRIORITY_NAME
+	@SYSC_RETVALSTR($ret)
+}

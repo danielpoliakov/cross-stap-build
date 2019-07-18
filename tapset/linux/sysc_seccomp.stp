@@ -1,0 +1,106 @@
+# seccomp ____________________________________________________
+# long sys_seccomp(unsigned int op, unsigned int flags, const char __user* uargs)
+
+@define _SYSCALL_SECCOMP_NAME
+%(
+	name = "seccomp"
+%)
+
+@define _SYSCALL_SECCOMP_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %p", op_str, flags_str, uargs_uaddr)
+%)
+
+@define _SYSCALL_SECCOMP_REGARGS
+%(
+	op = uint_arg(1)
+	op_str = _seccomp_op_str(op)
+	flags = uint_arg(2)
+	flags_str = _seccomp_flags_str(flags)
+%( systemtap_v <= "2.9" %?
+	uargs = user_string_quoted(pointer_arg(3))
+%)
+	uargs_uaddr = pointer_arg(3)
+%)
+
+probe syscall.seccomp = dw_syscall.seccomp !, nd_syscall.seccomp ? {}
+probe syscall.seccomp.return = dw_syscall.seccomp.return !,
+                               nd_syscall.seccomp.return ? {}
+
+# dw_seccomp _____________________________________________________
+
+probe dw_syscall.seccomp = kernel.function("sys_seccomp").call ?
+{
+	@_SYSCALL_SECCOMP_NAME
+	op = $op
+	op_str = _seccomp_op_str(op)
+	flags = $flags
+	flags_str = _seccomp_flags_str(flags)
+%( systemtap_v <= "2.9" %?
+	uargs = user_string_quoted($uargs)
+%)
+	uargs_uaddr = $uargs
+	@_SYSCALL_SECCOMP_ARGSTR
+}
+probe dw_syscall.seccomp.return = kernel.function("sys_seccomp").return ?
+{
+	@_SYSCALL_SECCOMP_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_seccomp _____________________________________________________
+
+probe nd_syscall.seccomp = nd1_syscall.seccomp!, nd2_syscall.seccomp!, tp_syscall.seccomp
+  { }
+
+probe nd1_syscall.seccomp = kprobe.function("sys_seccomp") ?
+{
+	@_SYSCALL_SECCOMP_NAME
+	asmlinkage()
+	@_SYSCALL_SECCOMP_REGARGS
+	@_SYSCALL_SECCOMP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.seccomp = kprobe.function(@arch_syscall_prefix "sys_seccomp") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SECCOMP_NAME
+	@_SYSCALL_SECCOMP_REGARGS
+	@_SYSCALL_SECCOMP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.seccomp = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_seccomp"), @const("__NR_compat_seccomp"))
+	@_SYSCALL_SECCOMP_NAME
+	@_SYSCALL_SECCOMP_REGARGS
+	@_SYSCALL_SECCOMP_ARGSTR
+}
+
+probe nd_syscall.seccomp.return = nd1_syscall.seccomp.return!, nd2_syscall.seccomp.return!, tp_syscall.seccomp.return
+  { }
+  
+probe nd1_syscall.seccomp.return = kprobe.function("sys_seccomp").return ?
+{
+	@_SYSCALL_SECCOMP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.seccomp.return = kprobe.function(@arch_syscall_prefix "sys_seccomp").return ?
+{
+	@_SYSCALL_SECCOMP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.seccomp.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_seccomp"), @const("__NR_compat_seccomp"))
+	@_SYSCALL_SECCOMP_NAME
+	@SYSC_RETVALSTR($ret)
+}

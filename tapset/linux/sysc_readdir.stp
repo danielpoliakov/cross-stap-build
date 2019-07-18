@@ -1,0 +1,112 @@
+# readdir ___________________________________________________
+#
+# long compat_sys_old_readdir(unsigned int fd, struct compat_old_linux_dirent __user *dirent, unsigned int count)
+# int old32_readdir(unsigned int fd, struct old_linux_dirent32 *dirent, unsigned int count)
+# long sys_old_readdir(unsigned int fd, struct old_linux_dirent __user *dirent, unsigned int count);
+#
+
+@define _SYSCALL_READDIR_NAME
+%(
+	name = "readdir"
+%)
+
+@define _SYSCALL_READDIR_ARGSTR
+%(
+	argstr = sprintf("%u, %p, %u", fd, dirent, count)
+%)
+
+@define _SYSCALL_READDIR_REGARGS
+%(
+	fd = uint_arg(1)
+	dirent = pointer_arg(2)
+	count = uint_arg(3)
+%)
+
+probe syscall.readdir = dw_syscall.readdir !, nd_syscall.readdir ? {}
+probe syscall.readdir.return = dw_syscall.readdir.return !,
+                               nd_syscall.readdir.return ? {}
+
+# dw_readdir _____________________________________________________
+
+probe dw_syscall.readdir = kernel.function("compat_sys_old_readdir").call ?,
+                        kernel.function("old32_readdir").call ?,
+                        kernel.function("old_readdir").call ?,
+                        kernel.function("sys_old_readdir").call ?
+{
+	@_SYSCALL_READDIR_NAME
+	fd = __uint32($fd)
+	dirent = $dirent
+	count = __uint32($count)
+	@_SYSCALL_READDIR_ARGSTR
+}
+probe dw_syscall.readdir.return = kernel.function("compat_sys_old_readdir").return ?,
+                               kernel.function("old32_readdir").return ?,
+                               kernel.function("old_readdir").return ?,
+                               kernel.function("sys_old_readdir").return ?
+{
+	@_SYSCALL_READDIR_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_readdir _____________________________________________________
+
+probe nd_syscall.readdir = nd1_syscall.readdir!, nd2_syscall.readdir!, tp_syscall.readdir
+  { }
+
+probe nd1_syscall.readdir = kprobe.function("compat_sys_old_readdir") ?,
+                            kprobe.function("old32_readdir") ?,
+                            kprobe.function("old_readdir") ?,
+                            kprobe.function("sys_old_readdir").call ?
+{
+	@_SYSCALL_READDIR_NAME
+	asmlinkage()
+	@_SYSCALL_READDIR_REGARGS
+	@_SYSCALL_READDIR_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.readdir = kprobe.function(@arch_syscall_prefix "compat_sys_old_readdir") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_READDIR_NAME
+	@_SYSCALL_READDIR_REGARGS
+	@_SYSCALL_READDIR_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.readdir = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_readdir"), @const("__NR_compat_readdir"))
+	@_SYSCALL_READDIR_NAME
+	@_SYSCALL_READDIR_REGARGS
+	@_SYSCALL_READDIR_ARGSTR
+}
+
+probe nd_syscall.readdir.return = nd1_syscall.readdir.return!, nd2_syscall.readdir.return!, tp_syscall.readdir.return
+  { }
+  
+probe nd1_syscall.readdir.return = kprobe.function("compat_sys_old_readdir").return ?,
+                                   kprobe.function("old32_readdir").return ?,
+                                   kprobe.function("old_readdir").return ?,
+                                   kprobe.function("sys_old_readdir").return ?
+{
+	@_SYSCALL_READDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.readdir.return = kprobe.function(@arch_syscall_prefix "compat_sys_old_readdir").return ?
+{
+	@_SYSCALL_READDIR_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.readdir.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_readdir"), @const("__NR_compat_readdir"))
+	@_SYSCALL_READDIR_NAME
+	@SYSC_RETVALSTR($ret)
+}

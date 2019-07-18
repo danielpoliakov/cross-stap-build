@@ -1,0 +1,95 @@
+# unshare ____________________________________________________
+# new function with 2.6.16
+# long sys_unshare(unsigned long unshare_flags)
+
+@define _SYSCALL_UNSHARE_NAME
+%(
+	name = "unshare"
+%)
+
+@define _SYSCALL_UNSHARE_ARGSTR
+%(
+	argstr = unshare_flags_str
+%)
+
+@define _SYSCALL_UNSHARE_REGARGS
+%(
+	unshare_flags = ulong_arg(1)
+	unshare_flags_str = __fork_flags(unshare_flags)
+%)
+
+probe syscall.unshare = dw_syscall.unshare !, nd_syscall.unshare ? {}
+probe syscall.unshare.return = dw_syscall.unshare.return !,
+                               nd_syscall.unshare.return ? {}
+
+# dw_unshare _____________________________________________________
+
+probe dw_syscall.unshare = kernel.function("sys_unshare").call ?
+{
+	@_SYSCALL_UNSHARE_NAME
+	unshare_flags = $unshare_flags
+	unshare_flags_str = __fork_flags(unshare_flags)
+	@_SYSCALL_UNSHARE_ARGSTR
+}
+probe dw_syscall.unshare.return = kernel.function("sys_unshare").return ?
+{
+	@_SYSCALL_UNSHARE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_unshare _____________________________________________________
+
+probe nd_syscall.unshare = nd1_syscall.unshare!, nd2_syscall.unshare!, tp_syscall.unshare
+  { }
+
+probe nd1_syscall.unshare = kprobe.function("sys_unshare") ?
+{
+	@_SYSCALL_UNSHARE_NAME
+	asmlinkage()
+	@_SYSCALL_UNSHARE_REGARGS
+	@_SYSCALL_UNSHARE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.unshare = kprobe.function(@arch_syscall_prefix "sys_unshare") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_UNSHARE_NAME
+	@_SYSCALL_UNSHARE_REGARGS
+	@_SYSCALL_UNSHARE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.unshare = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_unshare"), @const("__NR_compat_unshare"))
+	@_SYSCALL_UNSHARE_NAME
+	@_SYSCALL_UNSHARE_REGARGS
+	@_SYSCALL_UNSHARE_ARGSTR
+}
+
+probe nd_syscall.unshare.return = nd1_syscall.unshare.return!, nd2_syscall.unshare.return!, tp_syscall.unshare.return
+  { }
+
+probe nd1_syscall.unshare.return = kprobe.function("sys_unshare").return ?
+{
+	@_SYSCALL_UNSHARE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.unshare.return = kprobe.function(@arch_syscall_prefix "sys_unshare").return ?
+{
+	@_SYSCALL_UNSHARE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.unshare.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_unshare"), @const("__NR_compat_unshare"))
+	@_SYSCALL_UNSHARE_NAME
+	@SYSC_RETVALSTR($ret)
+}

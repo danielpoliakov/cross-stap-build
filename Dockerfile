@@ -7,7 +7,8 @@ RUN dnf install -y @development-tools \
                    flex \
                    bison \
                    bzip2 \
-                   wget
+                   wget \
+                   findutils
 
 RUN rpm -e --nodeps systemtap \
   && rpm -e --nodeps systemtap-client \
@@ -22,13 +23,16 @@ RUN wget https://toolchains.bootlin.com/downloads/releases/toolchains/armv7-eabi
   && wget https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64-core-i7/tarballs/x86-64-core-i7--glibc--stable-2018.11-1.tar.bz2 -q -O - | tar xj -C /csb/toolchains \
   && wget https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--glibc--stable-2018.11-1.tar.bz2 -q -O - | tar xj -C /csb/toolchains
 
+
 RUN git clone https://github.com/danieluhricek/systemtap
 
 WORKDIR systemtap
 
 RUN ./configure --with-elfutils=/csb/elfutils/elfutils-0.176/ \
   && make all \
-  && make install
+  && make install \
+  && rm -rf /usr/share/systemtap/tapset \
+  && mv /csb/tapset /usr/local/share/systemtap/tapset
 
 WORKDIR /
 

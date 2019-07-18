@@ -1,0 +1,268 @@
+# shmctl _____________________________________________________
+#
+# long sys_shmctl (int shmid,
+#                  int cmd,
+#                  struct shmid_ds __user *buf)
+#
+
+@define _SYSCALL_SHMCTL_NAME
+%(
+	name = "shmctl"
+%)
+
+@define _SYSCALL_SHMCTL_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %p", shmid, cmd_str, buf_uaddr)
+%)
+
+@define _SYSCALL_SHMCTL_REGARGS
+%(
+	shmid = int_arg(1)
+	cmd = int_arg(2)
+	cmd_str = _semctl_cmd(cmd)
+	buf_uaddr = pointer_arg(3)
+%)
+
+probe syscall.shmctl = dw_syscall.shmctl !, nd_syscall.shmctl ? {}
+probe syscall.shmctl.return = dw_syscall.shmctl.return !,
+                              nd_syscall.shmctl.return ? {}
+
+# dw_shmctl _____________________________________________________
+
+probe dw_syscall.shmctl = kernel.function("sys_shmctl").call ?
+{
+#%( arch == "powerpc" || arch == "s390" %?
+	@__syscall_gate_compat_simple
+#%)
+	@_SYSCALL_SHMCTL_NAME
+	shmid = __int32($shmid)
+	cmd = __int32($cmd)
+	cmd_str = _semctl_cmd(__int32($cmd))
+	buf_uaddr = $buf
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+probe dw_syscall.shmctl.return = kernel.function("sys_shmctl").return ?
+{
+#%( arch == "powerpc" || arch == "s390" %?
+	@__syscall_gate_compat_simple
+#%)
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_shmctl _____________________________________________________
+
+probe nd_syscall.shmctl = nd1_syscall.shmctl!, nd2_syscall.shmctl!, tp_syscall.shmctl
+  { }
+
+probe nd1_syscall.shmctl = kprobe.function("sys_shmctl") ?
+{
+#%( arch == "powerpc" || arch == "s390" %?
+	@__syscall_gate_compat_simple
+#%)
+	@_SYSCALL_SHMCTL_NAME
+	asmlinkage()
+	@_SYSCALL_SHMCTL_REGARGS
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmctl = kprobe.function(@arch_syscall_prefix "sys_shmctl") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SHMCTL_NAME
+	@_SYSCALL_SHMCTL_REGARGS
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmctl = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_shmctl"))
+	@_SYSCALL_SHMCTL_NAME
+	@_SYSCALL_SHMCTL_REGARGS
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+
+probe nd_syscall.shmctl.return = nd1_syscall.shmctl.return!, nd2_syscall.shmctl.return!, tp_syscall.shmctl.return
+  { }
+  
+probe nd1_syscall.shmctl.return = kprobe.function("sys_shmctl").return ?
+{
+#%( arch == "powerpc" || arch == "s390" %?
+	@__syscall_gate_compat_simple
+#%)
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.shmctl.return = kprobe.function(@arch_syscall_prefix "sys_shmctl").return ?
+{
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.shmctl.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_shmctl"))
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# compat_sys_shmctl ________________________________________
+#
+# long compat_sys_shmctl(int first, int second, void __user *uptr)
+#
+
+probe syscall.compat_sys_shmctl = dw_syscall.compat_sys_shmctl !,
+                                  nd_syscall.compat_sys_shmctl ? {}
+probe syscall.compat_sys_shmctl.return = dw_syscall.compat_sys_shmctl.return !,
+                                         nd_syscall.compat_sys_shmctl.return ? {}
+
+# dw_compat_sys_shmctl _____________________________________________________
+
+probe dw_syscall.compat_sys_shmctl = __syscall.compat_shmctl ?,
+	__syscall.compat_ipc.shmctl ?
+{
+	@_SYSCALL_SHMCTL_NAME
+%( systemtap_v <= "2.5" %?
+	first = @choose_defined($first, $shmid)
+	second = @choose_defined($second, $cmd)
+	uptr_uaddr = @choose_defined($uptr, $ptr)
+%)
+	shmid = __int32(@choose_defined($first, $shmid))
+	cmd = __int32(@choose_defined($second, $cmd))
+	cmd_str = _semctl_cmd(__int32(@choose_defined($second, $cmd)))
+	buf_uaddr = @choose_defined($uptr, $ptr)
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+probe __syscall.compat_shmctl = kernel.function("compat_sys_shmctl").call ?
+{
+	@__compat_syscall_gate(@const("__NR_compat_shmctl"))
+}
+probe __syscall.compat_ipc.shmctl = kernel.function("compat_sys_ipc").call ?,
+	kernel.function("sys32_ipc").call ?
+{
+	if ($call != @const("SHMCTL")) next;
+}
+
+probe dw_syscall.compat_sys_shmctl.return =
+	kernel.function("compat_sys_shmctl").return ?,
+	__syscall.compat_ipc.shmctl.return ?
+{
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.compat_ipc.shmctl.return =
+	kernel.function("compat_sys_ipc").return ?,
+	kernel.function("sys32_ipc").return ?
+{
+	if (@entry($call) != @const("SHMCTL")) next;
+}
+
+# nd_compat_sys_shmctl _____________________________________________________
+
+probe nd_syscall.compat_sys_shmctl = nd1_syscall.compat_sys_shmctl!, nd2_syscall.compat_sys_shmctl!, tp_syscall.compat_sys_shmctl
+  { }
+
+probe nd1_syscall.compat_sys_shmctl = __nd1_syscall.compat_shmctl ?,
+	__nd1_syscall.compat_ipc.shmctl ?
+{
+	@_SYSCALL_SHMCTL_NAME
+	cmd_str = _semctl_cmd(cmd)
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+probe __nd1_syscall.compat_shmctl = kprobe.function("compat_sys_shmctl") ?
+{
+	@__compat_syscall_gate(@const("__NR_compat_shmctl"))
+%( systemtap_v <= "2.5" %?
+	first = int_arg(1)
+	second = int_arg(2)
+	uptr_uaddr = pointer_arg(3)
+%)
+	shmid = int_arg(1)
+	cmd = int_arg(2)
+	buf_uaddr = pointer_arg(3)
+}
+probe __nd1_syscall.compat_ipc.shmctl = kprobe.function("compat_sys_ipc") ?,
+	kprobe.function("sys32_ipc") ?
+{
+	if (int_arg(1) != @const("SHMCTL")) next;
+%( systemtap_v <= "2.5" %?
+	first = int_arg(2)
+	second = int_arg(3)
+	uptr_uaddr = pointer_arg(5)
+%)
+	shmid = int_arg(2)
+	cmd = int_arg(3)
+	buf_uaddr = pointer_arg(5)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_sys_shmctl =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SHMCTL")) next;
+	@_SYSCALL_SHMCTL_NAME
+	shmid = int_arg(2)
+	cmd = int_arg(3)
+	cmd_str = _semctl_cmd(cmd)
+	buf_uaddr = pointer_arg(5)
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_sys_shmctl = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMCTL")) next;
+	@_SYSCALL_SHMCTL_NAME
+	shmid = int_arg(2)
+	cmd = int_arg(3)
+	cmd_str = _semctl_cmd(cmd)
+	buf_uaddr = pointer_arg(5)
+	@_SYSCALL_SHMCTL_ARGSTR
+}
+
+probe nd_syscall.compat_sys_shmctl.return = nd1_syscall.compat_sys_shmctl.return!, nd2_syscall.compat_sys_shmctl.return!, tp_syscall.compat_sys_shmctl.return
+  { }
+  
+probe nd1_syscall.compat_sys_shmctl.return =
+	kprobe.function("compat_sys_shmctl").return ?,
+	__nd1_syscall.compat_ipc.shmctl.return ?
+{
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.compat_ipc.shmctl.return =
+	kprobe.function("compat_sys_ipc").return ?,
+	kprobe.function("sys32_ipc").return ?
+{
+	if (@entry(int_arg(1)) != @const("SHMCTL")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_sys_shmctl.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_ipc").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SHMCTL")) next;
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_sys_shmctl.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_ipc"))
+	if (int_arg(1) != @const("SHMCTL")) next;
+	@_SYSCALL_SHMCTL_NAME
+	@SYSC_RETVALSTR($ret)
+}

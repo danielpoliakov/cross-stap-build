@@ -1,0 +1,96 @@
+# membarrier _______________________________________________________
+# SYSCALL_DEFINE2(membarrier, int, cmd, int, flags)
+
+@define _SYSCALL_MEMBARRIER_NAME
+%(
+	name = "membarrier"
+%)
+
+@define _SYSCALL_MEMBARRIER_ARGSTR
+%(
+	argstr = sprintf("%s, %d", cmd_str, flags)
+%)
+
+@define _SYSCALL_MEMBARRIER_REGARGS
+%(
+	cmd = int_arg(1)
+	cmd_str = _membarrier_cmd_str(cmd)
+	flags = int_arg(2)
+%)
+
+probe syscall.membarrier = dw_syscall.membarrier !, nd_syscall.membarrier ? {}
+probe syscall.membarrier.return = dw_syscall.membarrier.return !,
+                                  nd_syscall.membarrier.return ? {}
+
+# dw_membarrier _____________________________________________________
+
+probe dw_syscall.membarrier = kernel.function("sys_membarrier").call ?
+{
+	@_SYSCALL_MEMBARRIER_NAME
+	cmd = __int32($cmd)
+	cmd_str = _membarrier_cmd_str(cmd)
+	flags = __int32($flags)
+	@_SYSCALL_MEMBARRIER_ARGSTR
+}
+probe dw_syscall.membarrier.return = kernel.function("sys_membarrier").return ?
+{
+	@_SYSCALL_MEMBARRIER_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_membarrier _____________________________________________________
+
+probe nd_syscall.membarrier = nd1_syscall.membarrier!, nd2_syscall.membarrier!, tp_syscall.membarrier
+  { }
+
+probe nd1_syscall.membarrier = kprobe.function("sys_membarrier").call ?
+{
+	@_SYSCALL_MEMBARRIER_NAME
+	asmlinkage()
+	@_SYSCALL_MEMBARRIER_REGARGS
+	@_SYSCALL_MEMBARRIER_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.membarrier = kprobe.function(@arch_syscall_prefix "sys_membarrier") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_MEMBARRIER_NAME
+	@_SYSCALL_MEMBARRIER_REGARGS
+	@_SYSCALL_MEMBARRIER_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.membarrier = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_membarrier"), @const("__NR_compat_membarrier"))
+	@_SYSCALL_MEMBARRIER_NAME
+	@_SYSCALL_MEMBARRIER_REGARGS
+	@_SYSCALL_MEMBARRIER_ARGSTR
+}
+
+probe nd_syscall.membarrier.return = nd1_syscall.membarrier.return!, nd2_syscall.membarrier.return!, tp_syscall.membarrier.return
+  { }
+  
+probe nd1_syscall.membarrier.return = kprobe.function("sys_membarrier").return ?
+{
+	@_SYSCALL_MEMBARRIER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.membarrier.return = kprobe.function(@arch_syscall_prefix "sys_membarrier").return ?
+{
+	@_SYSCALL_MEMBARRIER_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.membarrier.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_membarrier"), @const("__NR_compat_membarrier"))
+	@_SYSCALL_MEMBARRIER_NAME
+	@SYSC_RETVALSTR($ret)
+}

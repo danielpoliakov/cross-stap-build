@@ -1,0 +1,230 @@
+# connect ____________________________________________________
+# long sys_connect(int fd, struct sockaddr __user *uservaddr, int addrlen)
+
+@define _SYSCALL_CONNECT_NAME
+%(
+	name = "connect"
+%)
+
+@define _SYSCALL_CONNECT_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %u", sockfd,
+			 _struct_sockaddr_u(serv_addr_uaddr, addrlen), addrlen)
+%)
+
+@define _SYSCALL_CONNECT_REGARGS
+%(
+	sockfd = int_arg(1)
+	serv_addr_uaddr = pointer_arg(2)
+	addrlen = uint_arg(3)
+%)
+
+@define _SYSCALL_SOCKETCALL_CONNECT_REGARGS
+%(
+	__args = &@ulong_cast(pointer_arg(2))
+	sockfd = __int32(user_ulong(&@ulong_cast(__args)[0]))
+	serv_addr_uaddr = user_ulong(&@ulong_cast(__args)[1])
+	addrlen = __uint32(user_ulong(&@ulong_cast(__args)[2]))
+%)
+
+@define _SYSCALL_COMPAT_SOCKETCALL_CONNECT_REGARGS
+%(
+	__args = &@uint_cast(pointer_arg(2))
+	sockfd = user_int(&@uint_cast(__args)[0])
+	serv_addr_uaddr = user_uint32(&@uint_cast(__args)[1])
+	addrlen = user_uint32(&@uint_cast(__args)[2])
+%)
+
+probe syscall.connect = dw_syscall.connect !, nd_syscall.connect ? {}
+probe syscall.connect.return = dw_syscall.connect.return !, nd_syscall.connect.return ? {}
+
+# dw_connect _____________________________________________________
+
+probe dw_syscall.connect = __syscall.connect ?, __syscall.socketcall.connect ?,
+	__syscall.compat_socketcall.connect ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@_af_inet_info_u(serv_addr_uaddr, addrlen)
+	@_SYSCALL_CONNECT_ARGSTR
+}
+probe __syscall.connect = kernel.function("sys_connect").call ?
+{
+	@__syscall_gate(@const("__NR_connect"))
+	sockfd = __int32($fd)
+	serv_addr_uaddr = $uservaddr
+	addrlen = __uint32($addrlen)
+}
+probe __syscall.socketcall.connect = kernel.function("sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_CONNECT")) next;
+	sockfd = __int32(user_ulong(&@ulong_cast($args)[0]))
+	serv_addr_uaddr = user_ulong(&@ulong_cast($args)[1])
+	addrlen = __uint32(user_ulong(&@ulong_cast($args)[2]))
+}
+probe __syscall.compat_socketcall.connect =
+	kernel.function("compat_sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_CONNECT")) next;
+	sockfd = user_int(&@uint_cast($args)[0])
+	serv_addr_uaddr = user_uint32(&@uint_cast($args)[1])
+	addrlen = user_uint32(&@uint_cast($args)[2])
+}
+probe dw_syscall.connect.return = __syscall.connect.return ?,
+	__syscall.socketcall.connect.return ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.connect.return = kernel.function("sys_connect").return ?
+{
+	@__syscall_gate(@const("__NR_connect"))
+}
+probe __syscall.socketcall.connect.return =
+	kernel.function("sys_socketcall").return ?,
+	kernel.function("compat_sys_socketcall").return ?
+{
+	if (__int32(@entry($call)) != @const("SYS_CONNECT")) next;
+}
+
+# nd_connect _____________________________________________________
+
+probe nd_syscall.connect = nd1_syscall.connect!, nd2_syscall.connect!, tp_syscall.connect
+  { }
+
+probe nd1_syscall.connect = __nd1_syscall.connect ?,
+	__nd1_syscall.socketcall.connect ?,
+	__nd1_syscall.compat_socketcall.connect ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@_af_inet_info_u(serv_addr_uaddr, addrlen)
+	@_SYSCALL_CONNECT_ARGSTR
+}
+probe __nd1_syscall.connect = kprobe.function("sys_connect") ?
+{
+	@__syscall_gate(@const("__NR_connect"))
+	asmlinkage()
+	@_SYSCALL_CONNECT_REGARGS
+}
+probe __nd1_syscall.socketcall.connect = kprobe.function("sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+	@_SYSCALL_SOCKETCALL_CONNECT_REGARGS
+}
+probe __nd1_syscall.compat_socketcall.connect =
+	kprobe.function("compat_sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_CONNECT_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.connect = __nd2_syscall.connect ?,
+	__nd2_syscall.socketcall.connect ?,
+	__nd2_syscall.compat_socketcall.connect ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@_af_inet_info_u(serv_addr_uaddr, addrlen)
+	@_SYSCALL_CONNECT_ARGSTR
+}
+probe __nd2_syscall.connect = kprobe.function(@arch_syscall_prefix "sys_connect") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_CONNECT_REGARGS
+}
+probe __nd2_syscall.socketcall.connect = kprobe.function(@arch_syscall_prefix "sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+	@_SYSCALL_SOCKETCALL_CONNECT_REGARGS
+}
+probe __nd2_syscall.compat_socketcall.connect =
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_CONNECT_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.connect = __tp_syscall.connect ?,
+	__tp_syscall.socketcall.connect ?,
+	__tp_syscall.compat_socketcall.connect ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@_af_inet_info_u(serv_addr_uaddr, addrlen)
+	@_SYSCALL_CONNECT_ARGSTR
+}
+probe __tp_syscall.connect = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_connect"))
+	@_SYSCALL_CONNECT_REGARGS
+}
+probe __tp_syscall.socketcall.connect = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+	if (@__compat_task) {
+		@_SYSCALL_COMPAT_SOCKETCALL_CONNECT_REGARGS
+	}
+	else {
+		@_SYSCALL_SOCKETCALL_CONNECT_REGARGS
+	}
+}
+
+probe nd_syscall.connect.return = nd1_syscall.connect.return!, nd2_syscall.connect.return!, tp_syscall.connect.return
+  { }
+
+probe nd1_syscall.connect.return = __nd1_syscall.connect.return ?,
+	__nd1_syscall.socketcall.connect.return ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.connect.return = kprobe.function("sys_connect").return ?
+{
+	@__syscall_gate(@const("__NR_connect"))
+}
+probe __nd1_syscall.socketcall.connect.return =
+	kprobe.function("sys_socketcall").return ?,
+	kprobe.function("compat_sys_socketcall").return ?
+{
+	if (@entry(__asmlinkage_int_arg(1)) != @const("SYS_CONNECT")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.connect.return =
+	kprobe.function(@arch_syscall_prefix "sys_connect").return ?,
+	__nd2_syscall.socketcall.connect.return ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.socketcall.connect.return =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.connect.return = __tp_syscall.connect.return ?,
+	__tp_syscall.socketcall.connect.return ?
+{
+	@_SYSCALL_CONNECT_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.connect.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_connect"))
+}
+probe __tp_syscall.connect.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_CONNECT")) next;
+}

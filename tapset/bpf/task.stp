@@ -1,0 +1,20 @@
+// task information tapset
+// Copyright (C) 2018 Red Hat Inc.
+//
+// This file is part of systemtap, and is free software.  You can
+// redistribute it and/or modify it under the terms of the GNU General
+// Public License (GPL); either version 2, or (at your option) any
+// later version.
+
+@__private30 function _task_cur:long()
+%{ /* bpf */ /* pure */
+  call, $$, get_current_task;
+%}
+
+/**
+ * sfunction task_current - The current task_struct of the current task
+ */
+function task_current:long () {
+  // TODO: return & @task(_task_cur())
+  return & @cast(_task_cur(), "task_struct")
+}

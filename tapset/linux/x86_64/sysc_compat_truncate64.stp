@@ -1,0 +1,113 @@
+# truncate _______________________________________________________
+#
+# asmlinkage long sys32_truncate64(const char __user *filename,
+#				   unsigned long offset_low,
+#				   unsigned long offset_high)
+# COMPAT_SYSCALL_DEFINE3(x86_truncate64, const char __user *, filename,
+#			 unsigned long, offset_low, unsigned long, offset_high)
+#
+
+@define _SYSCALL_COMPAT_TRUNCATE64_NAME
+%(
+	name = "truncate"
+%)
+
+@define _SYSCALL_COMPAT_TRUNCATE64_ARGSTR
+%(
+	argstr = sprintf("%s, %d", path, length)
+%)
+
+@define _SYSCALL_COMPAT_TRUNCATE64_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+        length = ((uint_arg(3) << 32) | uint_arg(2))
+%)
+
+probe syscall.compat_truncate64 = dw_syscall.compat_truncate64 !,
+                                  nd_syscall.compat_truncate64 ? {}
+probe syscall.compat_truncate64.return = dw_syscall.compat_truncate64.return !,
+                                         nd_syscall.compat_truncate64.return ? {}
+
+# dw_compat_truncate64 _____________________________________________________
+
+probe dw_syscall.compat_truncate64 =
+	kernel.function("sys32_truncate64").call ?,
+	kernel.function("compat_sys_x86_truncate64").call ?
+{
+        @_SYSCALL_COMPAT_TRUNCATE64_NAME
+	path_uaddr = $filename
+	path = user_string_quoted(path_uaddr)
+        length = (($offset_high << 32) | $offset_low)
+	@_SYSCALL_COMPAT_TRUNCATE64_ARGSTR
+}
+probe dw_syscall.compat_truncate64.return =
+	kernel.function("sys32_truncate64").return ?,
+	kernel.function("compat_sys_x86_truncate64").return ?
+{
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_truncate64 _____________________________________________________
+
+probe nd_syscall.compat_truncate64 = nd1_syscall.compat_truncate64!, nd2_syscall.compat_truncate64!, tp_syscall.compat_truncate64
+  { }
+
+probe nd1_syscall.compat_truncate64 =
+	kprobe.function("sys32_truncate64") ?,
+	kprobe.function("compat_sys_x86_truncate64") ?
+{
+	asmlinkage()
+        @_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@_SYSCALL_COMPAT_TRUNCATE64_REGARGS
+	@_SYSCALL_COMPAT_TRUNCATE64_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_truncate64 =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_truncate64") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@_SYSCALL_COMPAT_TRUNCATE64_REGARGS
+	@_SYSCALL_COMPAT_TRUNCATE64_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_truncate64 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_truncate64"))
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@_SYSCALL_COMPAT_TRUNCATE64_REGARGS
+	@_SYSCALL_COMPAT_TRUNCATE64_ARGSTR
+}
+
+probe nd_syscall.compat_truncate64.return = nd1_syscall.compat_truncate64.return!, nd2_syscall.compat_truncate64.return!, tp_syscall.compat_truncate64.return
+  { }
+
+probe nd1_syscall.compat_truncate64.return =
+	kprobe.function("sys32_truncate64").return ?,
+	kprobe.function("compat_sys_x86_truncate64").return ?
+{
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_truncate64.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_truncate64").return ?
+{
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_truncate64.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_ia32_truncate64"))
+	@_SYSCALL_COMPAT_TRUNCATE64_NAME
+	@SYSC_RETVALSTR($ret)
+}

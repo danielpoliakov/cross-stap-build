@@ -1,0 +1,385 @@
+# pipe _______________________________________________________
+#
+# asmlinkage int sys_pipe(unsigned long __user * fildes)
+# asmlinkage long sys_ia64_pipe (void)
+# SYSCALL_DEFINE2(pipe2, int __user *, fildes, int, flags)
+# pipe2() was added to Linux in version 2.6.27.
+
+probe syscall.pipe = dw_syscall.pipe !, nd_syscall.pipe ? {}
+probe syscall.pipe.return = dw_syscall.pipe.return !, nd_syscall.pipe.return ? {}
+
+# dw_pipe _____________________________________________________
+
+probe dw_syscall.pipe = __syscall.pipe2 ?, __syscall.ia64_pipe ?, __syscall.pipe
+{
+}
+probe __syscall.pipe2 = kernel.function("sys_pipe2").call ?
+{
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	name = "pipe2"
+	flags = __int32($flags)
+	flag_str = _sys_pipe2_flag_str(flags);
+	fildes_uaddr = $fildes
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		/*
+		 * Why use @cast here?  Why not just:
+		 *
+		 *   pipe0 = user_int(&$fildes[0]);
+		 *   pipe1 = user_int(&$fildes[1]);
+		 *
+		 * The answer is syscall wrappers
+		 * (CONFIG_SYSCALL_WRAPPERS).  On ppc (for example),
+		 * SyS_foo has all "long" arguments, and then the
+		 * inline SYSC_foo has the real argument types.  The
+		 * @cast makes sure we're dealing with the "final"
+		 * type.
+		 */
+		pipe0 = user_int(&@cast($fildes, "int")[0])
+		pipe1 = user_int(&@cast($fildes, "int")[1])
+		argstr = sprintf("[%d, %d], %s", pipe0, pipe1, flag_str);
+	}
+}
+probe __syscall.ia64_pipe = kernel.function("sys_ia64_pipe").call ?
+{
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	fildes_uaddr = 0
+	pipe0 = 0;
+	pipe1 = 0;
+	argstr = "[0, 0]";
+}
+probe __syscall.pipe = kernel.function("sys_pipe").call
+{
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	fildes_uaddr = $fildes
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		/*
+		 * Why use @cast here?  Why not just:
+		 *
+		 *   pipe0 = user_int(&$fildes[0]);
+		 *   pipe1 = user_int(&$fildes[1]);
+		 *
+		 * The answer is syscall wrappers
+		 * (CONFIG_SYSCALL_WRAPPERS).  On ppc (for example),
+		 * SyS_foo has all "long" arguments, and then the
+		 * inline SYSC_foo has the real argument types.  The
+		 * @cast makes sure we're dealing with the "final"
+		 * type.
+		 */
+		pipe0 = user_int(&@cast($fildes, "int")[0])
+		pipe1 = user_int(&@cast($fildes, "int")[1])
+		argstr = sprintf("[%d, %d]", pipe0, pipe1);
+	}
+}
+probe dw_syscall.pipe.return = __syscall.pipe2.return ?,
+			    __syscall.ia64_pipe.return ?,
+			    __syscall.pipe.return
+{
+}
+probe __syscall.pipe2.return = kernel.function("sys_pipe2").return ?
+{
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	name = "pipe2"
+	fildes_uaddr = @entry($fildes)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		/*
+		 * See comment in dw_syscall.pipe about why @cast is used
+		 * here.
+		 */
+		pipe0 = user_int(&@cast(@entry($fildes), "int")[0])
+		pipe1 = user_int(&@cast(@entry($fildes), "int")[1])
+	}
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.ia64_pipe.return = kernel.function("sys_ia64_pipe").return ?
+{
+	name = "pipe"
+	fildes_uaddr = 0;
+	pipe0 = _ia64_pipe0();
+	pipe1 = _ia64_pipe1();
+
+        @SYSC_RETVALSTR($return)
+        if (pipe0 >= 0) { retstr = "0" }
+}
+probe __syscall.pipe.return = kernel.function("sys_pipe").return
+{
+	name = "pipe"
+	fildes_uaddr = @entry($fildes)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		/*
+		 * See comment in dw_syscall.pipe about why @cast is used
+		 * here.
+		 */
+		pipe0 = user_int(&@cast(@entry($fildes), "int")[0])
+		pipe1 = user_int(&@cast(@entry($fildes), "int")[1])
+	}
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pipe _____________________________________________________
+
+probe nd_syscall.pipe = nd1_syscall.pipe!, nd2_syscall.pipe!, tp_syscall.pipe
+  { }
+
+probe nd1_syscall.pipe = __nd1_syscall.pipe2 ?, __nd1_syscall.ia64_pipe ?,
+	__nd1_syscall.pipe
+{
+}
+probe __nd1_syscall.pipe2 = kprobe.function("sys_pipe2") ?
+{
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	%( arch != "powerpc" %? asmlinkage() %)
+	name = "pipe2";
+	flags = int_arg(2)
+	flag_str = _sys_pipe2_flag_str(flags);
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d], %s", pipe0, pipe1, flag_str);
+	}
+}
+probe __nd1_syscall.ia64_pipe = kprobe.function("sys_ia64_pipe").call ?
+{
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	fildes_uaddr = 0
+	pipe0 = 0;
+	pipe1 = 0;
+	argstr = "[0, 0]";
+}
+probe __nd1_syscall.pipe = kprobe.function("sys_pipe")
+{
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	%( arch != "powerpc" %? asmlinkage() %)
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d]", pipe0, pipe1);
+	}
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pipe = __nd2_syscall.pipe2 ?, __nd2_syscall.pipe
+{
+}
+probe __nd2_syscall.pipe2 = kprobe.function(@arch_syscall_prefix "sys_pipe2") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	name = "pipe2";
+	flags = int_arg(2)
+	flag_str = _sys_pipe2_flag_str(flags);
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d], %s", pipe0, pipe1, flag_str);
+	}
+}
+probe __nd2_syscall.pipe = kprobe.function(@arch_syscall_prefix "sys_pipe")
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d]", pipe0, pipe1);
+	}
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pipe = __tp_syscall.pipe2 ?, __tp_syscall.pipe
+{
+}
+probe __tp_syscall.pipe2 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	name = "pipe2";
+	flags = int_arg(2)
+	flag_str = _sys_pipe2_flag_str(flags);
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d], %s", pipe0, pipe1, flag_str);
+	}
+}
+probe __tp_syscall.pipe = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pipe"), @const("__NR_compat_pipe"))
+	name = "pipe"
+	flags = 0
+	flag_str = ""
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+		argstr = "NULL"
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+		argstr = sprintf("[%d, %d]", pipe0, pipe1);
+	}
+}
+
+probe nd_syscall.pipe.return = nd1_syscall.pipe.return!, nd2_syscall.pipe.return!, tp_syscall.pipe.return
+  { }
+  
+probe nd1_syscall.pipe.return = __nd1_syscall.pipe2.return ?,
+			        __nd1_syscall.ia64_pipe.return ?,
+                                __nd1_syscall.pipe.return
+{
+}
+probe __nd1_syscall.pipe2.return = kprobe.function("sys_pipe2").return ?
+{
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	name = "pipe2";
+	fildes_uaddr = @entry(pointer_arg(1))
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.ia64_pipe.return = kprobe.function("sys_ia64_pipe").return ?
+{
+	name = "pipe"
+	fildes_uaddr = 0;
+	pipe0 = _ia64_pipe0();
+	pipe1 = _ia64_pipe1();
+        @SYSC_RETVALSTR(returnval())
+        if (pipe0 >= 0) { retstr = "0" }
+}
+probe __nd1_syscall.pipe.return = kprobe.function("sys_pipe").return
+{
+	name = "pipe"
+	fildes_uaddr = @entry(%( arch != "powerpc" %? __asmlinkage_int_arg(1)
+					    %: int_arg(1) %))
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pipe.return = __nd2_syscall.pipe2.return ?,
+                                __nd2_syscall.pipe.return
+{
+}
+probe __nd2_syscall.pipe2.return = kprobe.function(@arch_syscall_prefix "sys_pipe2").return ?
+{
+	name = "pipe2";
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.pipe.return = kprobe.function(@arch_syscall_prefix "sys_pipe").return
+{
+	name = "pipe"
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	fildes_uaddr = int_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pipe.return = __tp_syscall.pipe2.return ?,
+                               __tp_syscall.pipe.return
+{
+}
+probe __tp_syscall.pipe2.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pipe2"), @const("__NR_compat_pipe2"))
+	name = "pipe2";
+	fildes_uaddr = pointer_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.pipe.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_pipe"), @const("__NR_compat_pipe"))
+	name = "pipe"
+	fildes_uaddr = int_arg(1)
+	if (fildes_uaddr == 0) {
+		pipe0 = 0;
+		pipe1 = 0;
+	} else {
+		pipe0 = _fildes_index_u(fildes_uaddr, 0)
+		pipe1 = _fildes_index_u(fildes_uaddr, 1)
+	}
+	@SYSC_RETVALSTR($ret)
+}

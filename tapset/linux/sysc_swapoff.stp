@@ -1,0 +1,96 @@
+# swapoff ____________________________________________________
+#
+# asmlinkage long
+# sys_swapoff(const char __user * specialfile)
+#
+
+@define _SYSCALL_SWAPOFF_NAME
+%(
+	name = "swapoff"
+%)
+
+@define _SYSCALL_SWAPOFF_ARGSTR
+%(
+	argstr = path
+%)
+
+@define _SYSCALL_SWAPOFF_REGARGS
+%(
+	path_uaddr = pointer_arg(1)
+	path = user_string_quoted(path_uaddr)
+%)
+
+probe syscall.swapoff = dw_syscall.swapoff !, nd_syscall.swapoff ? {}
+probe syscall.swapoff.return = dw_syscall.swapoff.return !, nd_syscall.swapoff.return ? {}
+
+# dw_swapoff _____________________________________________________
+
+probe dw_syscall.swapoff = kernel.function("sys_swapoff").call ?
+{
+	@_SYSCALL_SWAPOFF_NAME
+	path_uaddr = $specialfile
+	path = user_string_quoted(path_uaddr)
+	@_SYSCALL_SWAPOFF_ARGSTR
+}
+probe dw_syscall.swapoff.return = kernel.function("sys_swapoff").return ?
+{
+	@_SYSCALL_SWAPOFF_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_swapoff _____________________________________________________
+
+probe nd_syscall.swapoff = nd1_syscall.swapoff!, nd2_syscall.swapoff!, tp_syscall.swapoff
+  { }
+
+probe nd1_syscall.swapoff = kprobe.function("sys_swapoff") ?
+{
+	@_SYSCALL_SWAPOFF_NAME
+	asmlinkage()
+	@_SYSCALL_SWAPOFF_REGARGS
+	@_SYSCALL_SWAPOFF_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.swapoff = kprobe.function(@arch_syscall_prefix "sys_swapoff") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SWAPOFF_NAME
+	@_SYSCALL_SWAPOFF_REGARGS
+	@_SYSCALL_SWAPOFF_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.swapoff = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_swapoff"), @const("__NR_compat_swapoff"))
+	@_SYSCALL_SWAPOFF_NAME
+	@_SYSCALL_SWAPOFF_REGARGS
+	@_SYSCALL_SWAPOFF_ARGSTR
+}
+
+probe nd_syscall.swapoff.return = nd1_syscall.swapoff.return!, nd2_syscall.swapoff.return!, tp_syscall.swapoff.return
+  { }
+
+probe nd1_syscall.swapoff.return = kprobe.function("sys_swapoff").return ?
+{
+	@_SYSCALL_SWAPOFF_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.swapoff.return = kprobe.function(@arch_syscall_prefix "sys_swapoff").return ?
+{
+	@_SYSCALL_SWAPOFF_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.swapoff.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_swapoff"), @const("__NR_compat_swapoff"))
+	@_SYSCALL_SWAPOFF_NAME
+	@SYSC_RETVALSTR($ret)
+}

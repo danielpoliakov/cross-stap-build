@@ -1,0 +1,82 @@
+# sgetmask ___________________________________________________
+#
+# sys_sgetmask(void)
+#
+
+@define _SYSCALL_SGETMASK_NAME
+%(
+	name = "sgetmask"
+%)
+
+@define _SYSCALL_SGETMASK_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.sgetmask = dw_syscall.sgetmask !, nd_syscall.sgetmask ? {}
+probe syscall.sgetmask.return = dw_syscall.sgetmask.return !,
+                                nd_syscall.sgetmask.return ? {}
+
+# dw_sgetmask _____________________________________________________
+
+probe dw_syscall.sgetmask = kernel.function("sys_sgetmask").call ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@_SYSCALL_SGETMASK_ARGSTR
+}
+probe dw_syscall.sgetmask.return = kernel.function("sys_sgetmask").return ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_sgetmask _____________________________________________________
+
+probe nd_syscall.sgetmask = nd1_syscall.sgetmask!, nd2_syscall.sgetmask!, tp_syscall.sgetmask
+  { }
+
+probe nd1_syscall.sgetmask = kprobe.function("sys_sgetmask") ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@_SYSCALL_SGETMASK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sgetmask = kprobe.function(@arch_syscall0_prefix "sys_sgetmask") ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@_SYSCALL_SGETMASK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sgetmask = kernel.trace("sys_enter") ?
+{
+	@__syscall_compat_gate(@const("__NR_sgetmask"), @const("__NR_compat_sgetmask"))
+	@_SYSCALL_SGETMASK_NAME
+	@_SYSCALL_SGETMASK_ARGSTR
+}
+
+probe nd_syscall.sgetmask.return = nd1_syscall.sgetmask.return!, nd2_syscall.sgetmask.return!, tp_syscall.sgetmask.return
+  { }
+
+probe nd1_syscall.sgetmask.return = kprobe.function("sys_sgetmask").return ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.sgetmask.return = kprobe.function(@arch_syscall0_prefix "sys_sgetmask").return ?
+{
+	@_SYSCALL_SGETMASK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.sgetmask.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_sgetmask"), @const("__NR_compat_sgetmask"))
+	@_SYSCALL_SGETMASK_NAME
+	@SYSC_RETVALSTR($ret)
+}

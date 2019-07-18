@@ -1,0 +1,204 @@
+# recvmmsg ___________________________________________________
+#
+# long sys_recvmmsg(int fd, struct mmsghdr __user *mmsg,
+#		    unsigned int vlen, unsigned int flags,
+#		    struct timespec __user *timeout)
+#
+
+@define _SYSCALL_RECVMMSG_NAME
+%(
+	name = "recvmmsg"
+%)
+
+@define _SYSCALL_RECVMMSG_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %u, %s, %s", s, mmsg_uaddr, vlen, flags_str, timeout_str)
+%)
+
+@define _SYSCALL_RECVMMSG_REGARGS
+%(
+	s = int_arg(1)
+	mmsg_uaddr = pointer_arg(2)
+	vlen = uint_arg(3)
+	flags = uint_arg(4)
+	flags_str = _msg_flags_str(flags)
+	timeout_uaddr = pointer_arg(5)
+%)
+
+probe syscall.recvmmsg = dw_syscall.recvmmsg !, nd_syscall.recvmmsg ? {}
+probe syscall.recvmmsg.return = dw_syscall.recvmmsg.return !,
+                                nd_syscall.recvmmsg.return ? {}
+
+# dw_recvmmsg _____________________________________________________
+
+probe dw_syscall.recvmmsg = kernel.function("sys_recvmmsg").call ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	s = __int32($fd)
+	mmsg_uaddr = $mmsg
+	vlen = __uint32($vlen)
+	flags = __uint32($flags)
+	flags_str = _msg_flags_str(flags)
+	timeout_uaddr = $timeout
+	timeout_str = _struct_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+probe dw_syscall.recvmmsg.return = kernel.function("sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_recvmmsg _____________________________________________________
+
+probe nd_syscall.recvmmsg = nd1_syscall.recvmmsg!, nd2_syscall.recvmmsg!, tp_syscall.recvmmsg
+  { }
+
+probe nd1_syscall.recvmmsg = kprobe.function("sys_recvmmsg").call ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	asmlinkage()
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.recvmmsg = kprobe.function(@arch_syscall_prefix "sys_recvmmsg").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RECVMMSG_NAME
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.recvmmsg = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_recvmmsg"))
+	@_SYSCALL_RECVMMSG_NAME
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+probe nd_syscall.recvmmsg.return = nd1_syscall.recvmmsg.return!, nd2_syscall.recvmmsg.return!, tp_syscall.recvmmsg.return
+  { }
+
+probe nd1_syscall.recvmmsg.return = kprobe.function("sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.recvmmsg.return = kprobe.function(@arch_syscall_prefix "sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.recvmmsg.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_recvmmsg"))
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# compat_recvmmsg ___________________________________________________
+#
+# long compat_sys_recvmmsg(int fd, struct compat_mmsghdr __user *mmsg,
+#			   unsigned vlen, unsigned int flags,
+#			   struct compat_timespec __user *timeout)
+#
+
+probe syscall.compat_recvmmsg = dw_syscall.compat_recvmmsg !,
+                                 nd_syscall.compat_recvmmsg ? {}
+probe syscall.compat_recvmmsg.return = dw_syscall.compat_recvmmsg.return !,
+                                       nd_syscall.compat_recvmmsg.return ? {}
+
+# dw_compat_recvmmsg _____________________________________________________
+
+probe dw_syscall.compat_recvmmsg = kernel.function("compat_sys_recvmmsg").call ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	s = __int32($fd)
+	mmsg_uaddr = $mmsg
+	vlen = __uint32($vlen)
+	flags = __uint32($flags)
+	flags_str = _msg_flags_str(flags)
+	timeout_uaddr = $timeout
+	timeout_str = _struct_compat_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+probe dw_syscall.compat_recvmmsg.return =
+	kernel.function("compat_sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_compat_recvmmsg _____________________________________________________
+
+probe nd_syscall.compat_recvmmsg = nd1_syscall.compat_recvmmsg!, nd2_syscall.compat_recvmmsg!, tp_syscall.compat_recvmmsg
+  { }
+
+probe nd1_syscall.compat_recvmmsg = kprobe.function("compat_sys_recvmmsg").call ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	asmlinkage()
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_recvmmsg = kprobe.function(@arch_syscall_prefix "compat_sys_recvmmsg").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RECVMMSG_NAME
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_recvmmsg = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_recvmmsg"))
+	@_SYSCALL_RECVMMSG_NAME
+	@_SYSCALL_RECVMMSG_REGARGS
+	timeout_str = _struct_compat_timespec_u(timeout_uaddr, 1)
+	@_SYSCALL_RECVMMSG_ARGSTR
+}
+
+probe nd_syscall.compat_recvmmsg.return = nd1_syscall.compat_recvmmsg.return!, nd2_syscall.compat_recvmmsg.return!, tp_syscall.compat_recvmmsg.return
+  { }
+  
+probe nd1_syscall.compat_recvmmsg.return =
+	kprobe.function("compat_sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.compat_recvmmsg.return = kprobe.function(@arch_syscall_prefix "compat_sys_recvmmsg").return ?
+{
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.compat_recvmmsg.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_recvmmsg"))
+	@_SYSCALL_RECVMMSG_NAME
+	@SYSC_RETVALSTR($ret)
+}

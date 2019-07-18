@@ -1,0 +1,91 @@
+# fsync ______________________________________________________
+# long sys_fsync(unsigned int fd)
+
+@define _SYSCALL_FSYNC_NAME
+%(
+	name = "fsync"
+%)
+
+@define _SYSCALL_FSYNC_ARGSTR
+%(
+	argstr = sprint(fd)
+%)
+
+@define _SYSCALL_FSYNC_REGARGS
+%(
+	fd = int_arg(1)
+%)
+
+probe syscall.fsync = dw_syscall.fsync !, nd_syscall.fsync ? {}
+probe syscall.fsync.return = dw_syscall.fsync.return !, nd_syscall.fsync.return ? {}
+
+# dw_fsync _____________________________________________________
+
+probe dw_syscall.fsync = kernel.function("sys_fsync").call
+{
+	@_SYSCALL_FSYNC_NAME
+	fd = __int32($fd)
+	@_SYSCALL_FSYNC_ARGSTR
+}
+probe dw_syscall.fsync.return = kernel.function("sys_fsync").return
+{
+	@_SYSCALL_FSYNC_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fsync _____________________________________________________
+
+probe nd_syscall.fsync = nd1_syscall.fsync!, nd2_syscall.fsync!, tp_syscall.fsync
+  { }
+
+probe nd1_syscall.fsync = kprobe.function("sys_fsync") ?
+{
+	@_SYSCALL_FSYNC_NAME
+	asmlinkage()
+	@_SYSCALL_FSYNC_REGARGS
+	@_SYSCALL_FSYNC_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fsync = kprobe.function(@arch_syscall_prefix "sys_fsync") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FSYNC_NAME
+	@_SYSCALL_FSYNC_REGARGS
+	@_SYSCALL_FSYNC_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fsync = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fsync"), @const("__NR_compat_fsync"))
+	@_SYSCALL_FSYNC_NAME
+	@_SYSCALL_FSYNC_REGARGS
+	@_SYSCALL_FSYNC_ARGSTR
+}
+
+probe nd_syscall.fsync.return = nd1_syscall.fsync.return!, nd2_syscall.fsync.return!, tp_syscall.fsync.return
+  { }
+
+probe nd1_syscall.fsync.return = kprobe.function("sys_fsync").return ?
+{
+	@_SYSCALL_FSYNC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fsync.return = kprobe.function(@arch_syscall_prefix "sys_fsync").return ?
+{
+	@_SYSCALL_FSYNC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fsync.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fsync"), @const("__NR_compat_fsync"))
+	@_SYSCALL_FSYNC_NAME
+	@SYSC_RETVALSTR($ret)
+}

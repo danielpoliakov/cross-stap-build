@@ -1,0 +1,214 @@
+@define prometheus_dump_array1_map(a,name,c1,m0,m1) %(
+   foreach (_v = [_v1]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array1_map_unquoted(a,name,c1,m0,m1) %(
+   foreach (_v = [_v1]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array1(a,name,c1) %(
+    @prometheus_dump_array1_map(@a,@name,@c1,sprint,sprint)
+%)
+
+@define prometheus_dump_array2_map(a,name,c1,c2,m0,m1,m2) %(
+   foreach (_v = [_v1,_v2]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array2_map_unquoted(a,name,c1,c2,m0,m1,m2) %(
+   foreach (_v = [_v1,_v2]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array2(a,name,c1,c2) %(
+   @prometheus_dump_array2_map(@a,@name,@c1,@c2,sprint,sprint,sprint)
+%)
+
+@define prometheus_dump_array3_map(a,name,c1,c2,c3,m0,m1,m2,m3) %(
+   foreach (_v = [_v1,_v2,_v3]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array3_map_unquoted(a,name,c1,c2,c3,m0,m1,m2,m3) %(
+   foreach (_v = [_v1,_v2,_v3]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array3(a,name,c1,c2,c3) %(
+   @prometheus_dump_array3_map(@a,@name,@c1,@c2,@c3,sprint,sprint,sprint,sprint)
+%)
+
+@define prometheus_dump_array4_map(a,name,c1,c2,c3,c4,m0,m1,m2,m3,m4) %(
+   foreach (_v = [_v1,_v2,_v3,_v4]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "," . @c4 . "=" . string_quoted(@m4(_v4))
+                 . "} " . text_str(m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array4_map_unquoted(a,name,c1,c2,c3,c4,m0,m1,m2,m3,m4) %(
+   foreach (_v = [_v1,_v2,_v3,_v4]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "," . @c4 . "=" . @m4(_v4)
+                 . "} " . text_str(m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array4(a,name,c1,c2,c3,c4) %(
+   @prometheus_dump_array4_map(@a,@name,@c1,@c2,@c3,@c4,
+			       sprint,sprint,sprint,sprint,sprint)
+%)
+
+@define prometheus_dump_array5_map(a,name,c1,c2,c3,c4,c5,m0,m1,m2,m3,m4,m5) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "," . @c4 . "=" . string_quoted(@m4(_v4))
+                 . "," . @c5 . "=" . string_quoted(@m5(_v5))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array5_map_unquoted(a,name,c1,c2,c3,c4,c5,m0,m1,m2,m3,m4,m5) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "," . @c4 . "=" . @m4(_v4)
+                 . "," . @c5 . "=" . @m5(_v5)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array5(a,name,c1,c2,c3,c4,c5) %(
+    @prometheus_dump_array5_map(@a,@name,@c1,@c2,@c3,@c4,@c5,
+				sprint,sprint,sprint,sprint,sprint,sprint)
+%)
+
+@define prometheus_dump_array6_map(a,name,c1,c2,c3,c4,c5,c6,
+				   m0,m1,m2,m3,m4,m5,m6) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "," . @c4 . "=" . string_quoted(@m4(_v4))
+                 . "," . @c5 . "=" . string_quoted(@m5(_v5))
+                 . "," . @c6 . "=" . string_quoted(@m6(_v6))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array6_map_unquoted(a,name,c1,c2,c3,c4,c5,c6,
+				   m0,m1,m2,m3,m4,m5,m6) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "," . @c4 . "=" . @m4(_v4)
+                 . "," . @c5 . "=" . @m5(_v5)
+                 . "," . @c6 . "=" . @m6(_v6)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array6(a,name,c1,c2,c3,c4,c5,c6) %(
+   @prometheus_dump_array6_map(@a,@name,@c1,@c2,@c3,@c4,@c5,@c6,
+			       sprint,sprint,sprint,sprint,sprint,sprint,
+			       sprint)
+%)
+
+@define prometheus_dump_array7_map(a,name,c1,c2,c3,c4,c5,c6,c7,
+				   m0,m1,m2,m3,m4,m5,m6,m7) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6,_v7]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "," . @c4 . "=" . string_quoted(@m4(_v4))
+                 . "," . @c5 . "=" . string_quoted(@m5(_v5))
+                 . "," . @c6 . "=" . string_quoted(@m6(_v6))
+                 . "," . @c7 . "=" . string_quoted(@m7(_v7))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array7_map_unquoted(a,name,c1,c2,c3,c4,c5,c6,c7,
+				   m0,m1,m2,m3,m4,m5,m6,m7) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6,_v7]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . @m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "," . @c4 . "=" . @m4(_v4)
+                 . "," . @c5 . "=" . @m5(_v5)
+                 . "," . @c6 . "=" . @m6(_v6)
+                 . "," . @c7 . "=" . @m7(_v7)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array7(a,name,c1,c2,c3,c4,c5,c6,c7) %(
+   @prometheus_dump_array7_map(@a,@name,@c1,@c2,@c3,@c4,@c5,@c6,@c7,
+			       sprint,sprint,sprint,sprint,sprint,sprint,
+			       sprint,sprint)
+%)
+
+@define prometheus_dump_array8_map(a,name,c1,c2,c3,c4,c5,c6,c7,c8,
+				   m0,m1,m2,m3,m4,m5,m6,m7,m8) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6,_v7,_v8]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1))
+                 . "," . @c2 . "=" . string_quoted(@m2(_v2))
+                 . "," . @c3 . "=" . string_quoted(@m3(_v3))
+                 . "," . @c4 . "=" . string_quoted(@m4(_v4))
+                 . "," . @c5 . "=" . string_quoted(@m5(_v5))
+                 . "," . @c6 . "=" . string_quoted(@m6(_v6))
+                 . "," . @c7 . "=" . string_quoted(@m7(_v7))
+                 . "," . @c8 . "=" . string_quoted(@m8(_v8))
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+@define prometheus_dump_array8_map_unquoted(a,name,c1,c2,c3,c4,c5,c6,c7,c8,
+				   m0,m1,m2,m3,m4,m5,m6,m7,m8) %(
+   foreach (_v = [_v1,_v2,_v3,_v4,_v5,_v6,_v7,_v8]  in @a) {
+      $value .= (@name . "{" . @c1 . "=" . string_quoted(@m1(_v1)
+                 . "," . @c2 . "=" . @m2(_v2)
+                 . "," . @c3 . "=" . @m3(_v3)
+                 . "," . @c4 . "=" . @m4(_v4)
+                 . "," . @c5 . "=" . @m5(_v5)
+                 . "," . @c6 . "=" . @m6(_v6)
+                 . "," . @c7 . "=" . @m7(_v7)
+                 . "," . @c8 . "=" . @m8(_v8)
+                 . "} " . text_str(@m0(_v)) . "\n")
+    }
+%)
+
+
+@define prometheus_dump_array8(a,name,c1,c2,c3,c4,c5,c6,c7,c8) %(
+   @prometheus_dump_array8_map(@a,@name,@c1,@c2,@c3,@c4,@c5,@c6,@c7,@c8,
+			       sprint,sprint,sprint,sprint,sprint,sprint,
+			       sprint,sprint,sprint)
+%)

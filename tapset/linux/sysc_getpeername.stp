@@ -1,0 +1,231 @@
+# getpeername ________________________________________________
+# long sys_getpeername(int fd, struct sockaddr __user *usockaddr,
+#		       int __user *usockaddr_len)
+#
+
+@define _SYSCALL_GETPEERNAME_NAME
+%(
+	name = "getpeername"
+%)
+
+@define _SYSCALL_GETPEERNAME_ARGSTR
+%(
+	argstr = sprintf("%d, %p, %p", s, name_uaddr, namelen_uaddr)
+%)
+
+@define _SYSCALL_GETPEERNAME_REGARGS
+%(
+	s = int_arg(1)
+	name_uaddr = pointer_arg(2)
+	namelen_uaddr = pointer_arg(3)
+%)
+
+@define _SYSCALL_SOCKETCALL_GETPEERNAME_REGARGS
+%(
+	__args = &@ulong_cast(pointer_arg(2))
+	s = __int32(user_ulong(&@ulong_cast(__args)[0]))
+	name_uaddr = user_ulong(&@ulong_cast(__args)[1])
+	namelen_uaddr = user_ulong(&@ulong_cast(__args)[2])
+%)
+	
+@define _SYSCALL_COMPAT_SOCKETCALL_GETPEERNAME_REGARGS
+%(
+	__args = &@uint_cast(pointer_arg(2))
+	s = user_int(&@uint_cast(__args)[0])
+	name_uaddr = user_uint32(&@uint_cast(__args)[1])
+	namelen_uaddr = user_uint32(&@uint_cast(__args)[2])
+%)
+
+probe syscall.getpeername = dw_syscall.getpeername !, nd_syscall.getpeername ? {}
+probe syscall.getpeername.return = dw_syscall.getpeername.return !, nd_syscall.getpeername.return ? {}
+
+# dw_getpeername _____________________________________________________
+
+probe dw_syscall.getpeername = __syscall.getpeername ?,
+	__syscall.socketcall.getpeername ?,
+	__syscall.compat_socketcall.getpeername ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@_SYSCALL_GETPEERNAME_ARGSTR
+}
+probe __syscall.getpeername = kernel.function("sys_getpeername").call ?
+{
+	@__syscall_gate(@const("__NR_getpeername"))
+	s = __int32($fd)
+	name_uaddr = $usockaddr
+	namelen_uaddr = $usockaddr_len
+}
+probe __syscall.socketcall.getpeername = kernel.function("sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_GETPEERNAME")) next;
+	s = __int32(user_ulong(&@ulong_cast($args)[0]))
+	name_uaddr = user_ulong(&@ulong_cast($args)[1])
+	namelen_uaddr = user_ulong(&@ulong_cast($args)[2])
+}
+probe __syscall.compat_socketcall.getpeername =
+	kernel.function("compat_sys_socketcall").call ?
+{
+	if (__int32($call) != @const("SYS_GETPEERNAME")) next;
+	s = user_int(&@uint_cast($args)[0])
+	name_uaddr = user_uint32(&@uint_cast($args)[1])
+	namelen_uaddr = user_uint32(&@uint_cast($args)[2])
+}
+probe dw_syscall.getpeername.return = __syscall.getpeername.return ?,
+	__syscall.socketcall.getpeername.return ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.getpeername.return = kernel.function("sys_getpeername").return ?
+{
+	@__syscall_gate(@const("__NR_getpeername"))
+}
+probe __syscall.socketcall.getpeername.return =
+	kernel.function("sys_socketcall").return ?,
+	kernel.function("compat_sys_socketcall").return ?
+{
+	if (__int32(@entry($call)) != @const("SYS_GETPEERNAME")) next;
+}
+
+# nd_getpeername _____________________________________________________
+
+probe nd_syscall.getpeername = nd1_syscall.getpeername!, nd2_syscall.getpeername!, tp_syscall.getpeername
+  { }
+
+probe nd1_syscall.getpeername = __nd1_syscall.getpeername ?,
+	__nd1_syscall.socketcall.getpeername ?,
+	__nd1_syscall.compat_socketcall.getpeername ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@_SYSCALL_GETPEERNAME_ARGSTR
+}
+probe __nd1_syscall.getpeername = kprobe.function("sys_getpeername") ?
+{
+	@__syscall_gate(@const("__NR_getpeername"))
+	asmlinkage()
+	@_SYSCALL_GETPEERNAME_REGARGS
+}
+probe __nd1_syscall.socketcall.getpeername =
+	kprobe.function("sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+	@_SYSCALL_SOCKETCALL_GETPEERNAME_REGARGS
+}
+probe __nd1_syscall.compat_socketcall.getpeername =
+	kprobe.function("compat_sys_socketcall").call ?
+{
+	asmlinkage()
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_GETPEERNAME_REGARGS
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getpeername = __nd2_syscall.getpeername ?,
+	__nd2_syscall.socketcall.getpeername ?,
+	__nd2_syscall.compat_socketcall.getpeername ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@_SYSCALL_GETPEERNAME_ARGSTR
+}
+probe __nd2_syscall.getpeername = kprobe.function(@arch_syscall_prefix "sys_getpeername") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETPEERNAME_REGARGS
+}
+probe __nd2_syscall.socketcall.getpeername =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+	@_SYSCALL_SOCKETCALL_GETPEERNAME_REGARGS
+}
+probe __nd2_syscall.compat_socketcall.getpeername =
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").call ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+	@_SYSCALL_COMPAT_SOCKETCALL_GETPEERNAME_REGARGS
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getpeername = __tp_syscall.getpeername ?,
+	__tp_syscall.socketcall.getpeername ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@_SYSCALL_GETPEERNAME_ARGSTR
+}
+probe __tp_syscall.getpeername = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_getpeername"))
+	@_SYSCALL_GETPEERNAME_REGARGS
+}
+probe __tp_syscall.socketcall.getpeername = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+	if (@__compat_task) {
+		@_SYSCALL_COMPAT_SOCKETCALL_GETPEERNAME_REGARGS
+	}
+	else {
+		@_SYSCALL_SOCKETCALL_GETPEERNAME_REGARGS
+	}
+}
+
+probe nd_syscall.getpeername.return = nd1_syscall.getpeername.return!, nd2_syscall.getpeername.return!, tp_syscall.getpeername.return
+  { }
+
+probe nd1_syscall.getpeername.return =
+	__nd1_syscall.getpeername.return ?,
+	__nd1_syscall.socketcall.getpeername.return ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.getpeername.return =
+	kprobe.function("sys_getpeername").return ?
+{
+	@__syscall_gate(@const("__NR_getpeername"))
+}
+probe __nd1_syscall.socketcall.getpeername.return =
+	kprobe.function("sys_socketcall").return ?,
+	kprobe.function("compat_sys_socketcall").return ?
+{
+	if (@entry(__asmlinkage_int_arg(1)) != @const("SYS_GETPEERNAME")) next;
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getpeername.return =
+	kprobe.function(@arch_syscall_prefix "sys_getpeername").return ?,
+	__nd2_syscall.socketcall.getpeername.return ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd2_syscall.socketcall.getpeername.return =
+	kprobe.function(@arch_syscall_prefix "sys_socketcall").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_socketcall").return ?
+{
+	__set_syscall_pt_regs(@entry(pointer_arg(1)))
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getpeername.return = __tp_syscall.getpeername.return ?,
+	__tp_syscall.socketcall.getpeername.return ?
+{
+	@_SYSCALL_GETPEERNAME_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.getpeername.return = kernel.trace("sys_exit")
+{
+	@__syscall_gate(@const("__NR_getpeername"))
+}
+probe __tp_syscall.socketcall.getpeername.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_socketcall"), @const("__NR_compat_socketcall"))
+	if (int_arg(1) != @const("SYS_GETPEERNAME")) next;
+}

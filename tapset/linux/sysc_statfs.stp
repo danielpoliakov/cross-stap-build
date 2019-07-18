@@ -1,0 +1,103 @@
+# statfs _____________________________________________________
+# long sys_statfs(const char __user * path, struct statfs __user * buf)
+# long compat_sys_statfs(const char __user *path, struct compat_statfs __user *buf)
+#
+
+@define _SYSCALL_STATFS_NAME
+%(
+	name = "statfs"
+%)
+
+@define _SYSCALL_STATFS_ARGSTR
+%(
+	argstr = sprintf("%s, %p", path, buf_uaddr)
+%)
+
+@define _SYSCALL_STATFS_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	buf_uaddr = pointer_arg(2)
+%)
+
+probe syscall.statfs = dw_syscall.statfs !, nd_syscall.statfs ? {}
+probe syscall.statfs.return = dw_syscall.statfs.return !,
+                              nd_syscall.statfs.return ? {}
+
+# dw_statfs _____________________________________________________
+
+probe dw_syscall.statfs = kernel.function("compat_sys_statfs").call ?,
+                       kernel.function("sys_statfs").call ?
+{
+	@_SYSCALL_STATFS_NAME
+	buf_uaddr = @__pointer($buf)
+	path = user_string_quoted(@__pointer(@choose_defined($pathname, $path)))
+	@_SYSCALL_STATFS_ARGSTR
+}
+
+probe dw_syscall.statfs.return = kernel.function("compat_sys_statfs").return ?,
+                              kernel.function("sys_statfs").return ?
+{
+	@_SYSCALL_STATFS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_statfs _____________________________________________________
+
+probe nd_syscall.statfs = nd1_syscall.statfs!, nd2_syscall.statfs!, tp_syscall.statfs
+  { }
+
+probe nd1_syscall.statfs = kprobe.function("compat_sys_statfs") ?,
+                           kprobe.function("sys_statfs") ?
+{
+	@_SYSCALL_STATFS_NAME
+	asmlinkage()
+	@_SYSCALL_STATFS_REGARGS
+	@_SYSCALL_STATFS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.statfs = kprobe.function(@arch_syscall_prefix "compat_sys_statfs") ?,
+                           kprobe.function(@arch_syscall_prefix "sys_statfs") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_STATFS_NAME
+	@_SYSCALL_STATFS_REGARGS
+	@_SYSCALL_STATFS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.statfs = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_statfs"), @const("__NR_compat_statfs"))
+	@_SYSCALL_STATFS_NAME
+	@_SYSCALL_STATFS_REGARGS
+	@_SYSCALL_STATFS_ARGSTR
+}
+
+probe nd_syscall.statfs.return = nd1_syscall.statfs.return!, nd2_syscall.statfs.return!, tp_syscall.statfs.return
+  { }
+
+probe nd1_syscall.statfs.return = kprobe.function("compat_sys_statfs").return ?,
+                                  kprobe.function("sys_statfs").return ?
+{
+	@_SYSCALL_STATFS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.statfs.return = kprobe.function(@arch_syscall_prefix "compat_sys_statfs").return ?,
+                                  kprobe.function(@arch_syscall_prefix "sys_statfs").return ?
+{
+	@_SYSCALL_STATFS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.statfs.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_statfs"), @const("__NR_compat_statfs"))
+	@_SYSCALL_STATFS_NAME
+	@SYSC_RETVALSTR($ret)
+}

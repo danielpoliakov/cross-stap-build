@@ -1,0 +1,118 @@
+# geteuid ____________________________________________________
+# long sys_geteuid(void)
+# long sys32_geteuid16(void)
+#
+
+@define _SYSCALL_GETEUID_NAME
+%(
+	name = "geteuid"
+%)
+
+@define _SYSCALL_GETEUID_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.geteuid = dw_syscall.geteuid !, nd_syscall.geteuid ? {}
+probe syscall.geteuid.return = dw_syscall.geteuid.return !, nd_syscall.geteuid.return ? {}
+
+# dw_geteuid _____________________________________________________
+
+probe dw_syscall.geteuid = kernel.function("sys_geteuid16").call ?,
+                        kernel.function("sys32_geteuid16").call ?,
+%( arch == "s390" %?
+                        kernel.function("compat_sys_s390_geteuid16").call ?,
+%)
+                        kernel.function("sys_geteuid").call
+{
+	@_SYSCALL_GETEUID_NAME
+	@_SYSCALL_GETEUID_ARGSTR
+}
+probe dw_syscall.geteuid.return = kernel.function("sys_geteuid16").return ?,
+	kernel.function("sys32_geteuid16").return ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_geteuid16").return ?,
+%)
+	kernel.function("sys_geteuid").return
+{
+	@_SYSCALL_GETEUID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_geteuid _____________________________________________________
+
+probe nd_syscall.geteuid = nd1_syscall.geteuid!, nd2_syscall.geteuid!, tp_syscall.geteuid
+  { }
+
+probe nd1_syscall.geteuid = kprobe.function("sys_geteuid16") ?,
+                            kprobe.function("sys32_geteuid16") ?,
+%( arch == "s390" %?
+                            kprobe.function("compat_sys_s390_geteuid16") ?,
+%)
+                            kprobe.function("sys_geteuid")
+{
+	@_SYSCALL_GETEUID_NAME
+	@_SYSCALL_GETEUID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.geteuid = kprobe.function(@arch_syscall0_prefix "sys_geteuid") ?,
+                            kprobe.function(@arch_syscall0_prefix "sys_geteuid16") ?
+{
+	@_SYSCALL_GETEUID_NAME
+	@_SYSCALL_GETEUID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.geteuid = __tp_syscall.geteuid, __tp_syscall.geteuid16
+{
+	@_SYSCALL_GETEUID_NAME
+	@_SYSCALL_GETEUID_ARGSTR
+}
+probe __tp_syscall.geteuid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_geteuid"), @const("__NR_compat_geteuid32"))
+}
+probe __tp_syscall.geteuid16 = kernel.trace("sys_enter")
+{
+	@__compat_syscall_gate(@const("__NR_compat_geteuid"))
+}
+
+probe nd_syscall.geteuid.return = nd1_syscall.geteuid.return!, nd2_syscall.geteuid.return!, tp_syscall.geteuid.return
+  { }
+
+probe nd1_syscall.geteuid.return = kprobe.function("sys_geteuid16").return ?,
+	kprobe.function("sys32_geteuid16").return ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_geteuid16").return ?,
+%)
+	kprobe.function("sys_geteuid").return
+{
+	@_SYSCALL_GETEUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.geteuid.return =
+	kprobe.function(@arch_syscall0_prefix "sys_geteuid").return ?,
+	kprobe.function(@arch_syscall0_prefix "sys_geteuid16").return ?
+{
+	@_SYSCALL_GETEUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.geteuid.return = __tp_syscall.geteuid.return, __tp_syscall.geteuid16.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETEUID_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.geteuid.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_geteuid"), @const("__NR_compat_geteuid32"))
+}
+probe __tp_syscall.geteuid16.return = kernel.trace("sys_exit")
+{
+	@__compat_syscall_gate(@const("__NR_compat_geteuid"))
+}

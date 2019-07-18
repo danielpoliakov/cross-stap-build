@@ -1,0 +1,125 @@
+# timerfd_gettime_____________________________________________
+#
+# SYSCALL_DEFINE2(timerfd_gettime, int, ufd, struct itimerspec __user *, otmr)
+# COMPAT_SYSCALL_DEFINE2(timerfd_gettime, int, ufd,
+#		struct compat_itimerspec __user *, otmr)
+
+@define _SYSCALL_TIMERFD_GETTIME_NAME
+%(
+	name = "timerfd_gettime"
+%)
+
+@define _SYSCALL_TIMERFD_GETTIME_ARGSTR
+%(
+	argstr = sprintf("%d, %p", fd, value_uaddr)
+%)
+
+@define _SYSCALL_TIMERFD_GETTIME_REGARGS
+%(
+	fd = int_arg(1)
+	value_uaddr = pointer_arg(2)
+%)
+
+probe syscall.timerfd_gettime = dw_syscall.timerfd_gettime !,
+                                nd_syscall.timerfd_gettime ? {}
+probe syscall.timerfd_gettime.return = dw_syscall.timerfd_gettime.return !,
+                                       nd_syscall.timerfd_gettime.return ? {}
+
+# dw_timerfd_gettime _____________________________________________________
+
+probe dw_syscall.timerfd_gettime = __syscall.timerfd_gettime ?,
+	kernel.function("compat_sys_timerfd_gettime").call ?
+{
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	fd = __int32($ufd)
+	value_uaddr = @__pointer($otmr)
+	@_SYSCALL_TIMERFD_GETTIME_ARGSTR
+}
+probe __syscall.timerfd_gettime = kernel.function("sys_timerfd_gettime").call ?
+{
+	@__syscall_gate_compat_simple
+}
+probe dw_syscall.timerfd_gettime.return = __syscall.timerfd_gettime.return ?,
+	kernel.function("compat_sys_timerfd_gettime").return ?
+{
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.timerfd_gettime.return =
+	kernel.function("sys_timerfd_gettime").return ?
+{
+	@__syscall_gate_compat_simple
+}
+
+# nd_timerfd_gettime _____________________________________________________
+
+probe nd_syscall.timerfd_gettime = nd1_syscall.timerfd_gettime!, nd2_syscall.timerfd_gettime!, tp_syscall.timerfd_gettime
+  { }
+
+probe nd1_syscall.timerfd_gettime = __nd1_syscall.timerfd_gettime ?,
+	kprobe.function("compat_sys_timerfd_gettime").call ?
+{
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	asmlinkage()
+	@_SYSCALL_TIMERFD_GETTIME_REGARGS
+	@_SYSCALL_TIMERFD_GETTIME_ARGSTR
+}
+probe __nd1_syscall.timerfd_gettime =
+	kprobe.function("sys_timerfd_gettime").call ?
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.timerfd_gettime =
+	kprobe.function(@arch_syscall_prefix "sys_timerfd_gettime") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_timerfd_gettime") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@_SYSCALL_TIMERFD_GETTIME_REGARGS
+	@_SYSCALL_TIMERFD_GETTIME_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.timerfd_gettime = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_timerfd_gettime"), @const("__NR_compat_timerfd_gettime"))
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@_SYSCALL_TIMERFD_GETTIME_REGARGS
+	@_SYSCALL_TIMERFD_GETTIME_ARGSTR
+}
+
+probe nd_syscall.timerfd_gettime.return = nd1_syscall.timerfd_gettime.return!, nd2_syscall.timerfd_gettime.return!, tp_syscall.timerfd_gettime.return
+  { }
+
+probe nd1_syscall.timerfd_gettime.return = __nd1_syscall.timerfd_gettime.return ?,
+	kprobe.function("compat_sys_timerfd_gettime").return ?
+{
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.timerfd_gettime.return =
+	kprobe.function("sys_timerfd_gettime").return ?
+{
+	@__syscall_gate_compat_simple
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.timerfd_gettime.return =
+	kprobe.function(@arch_syscall_prefix "sys_timerfd_gettime").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_timerfd_gettime").return ?
+{
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.timerfd_gettime.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_timerfd_gettime"), @const("__NR_compat_timerfd_gettime"))
+	@_SYSCALL_TIMERFD_GETTIME_NAME
+	@SYSC_RETVALSTR($ret)
+}

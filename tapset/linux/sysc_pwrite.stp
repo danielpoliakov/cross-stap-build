@@ -1,0 +1,237 @@
+# pwrite64 ___________________________________________________
+#
+# ssize_t sys_pwrite64(unsigned int fd,
+#		  const char __user *buf,
+#		  size_t count,
+#		  loff_t pos)
+#
+
+@define _SYSCALL_PWRITE_NAME
+%(
+	name = "pwrite"
+%)
+
+@define _SYSCALL_PWRITE_ARGSTR
+%(
+	argstr = sprintf("%d, %s, %u, %d", fd, buf_str, count, offset)
+%)
+
+@define _SYSCALL_PWRITE_REGARGS
+%(
+	fd = int_arg(1)
+	buf_uaddr = pointer_arg(2)
+	count = ulong_arg(3)
+	buf_str = user_buffer_quoted(buf_uaddr, count, syscall_string_trunc)
+%)
+
+probe syscall.pwrite = dw_syscall.pwrite !, nd_syscall.pwrite ? {}
+probe syscall.pwrite.return = dw_syscall.pwrite.return !,
+                              nd_syscall.pwrite.return ? {}
+
+# dw_pwrite _____________________________________________________
+
+probe dw_syscall.pwrite = kernel.function("sys_pwrite64").call
+{
+%( arch == "s390" || arch == "x86_64" %?
+	@__syscall_gate(@const("__NR_pwrite64"))
+%)
+	@_SYSCALL_PWRITE_NAME
+	fd = __int32($fd)
+	buf_uaddr = $buf
+	count = @__compat_ulong($count)
+	buf_str = user_buffer_quoted(buf_uaddr, count, syscall_string_trunc)
+	offset = $pos
+	@_SYSCALL_PWRITE_ARGSTR
+}
+probe dw_syscall.pwrite.return = kernel.function("sys_pwrite64").return
+{
+%( arch == "s390" || arch == "x86_64" %?
+	@__syscall_gate(@const("__NR_pwrite64"))
+%)
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pwrite _____________________________________________________
+
+probe nd_syscall.pwrite = nd1_syscall.pwrite!, nd2_syscall.pwrite!, tp_syscall.pwrite
+  { }
+
+probe nd1_syscall.pwrite = kprobe.function("sys_pwrite64") ?
+{
+%( arch == "s390" || arch == "x86_64" %?
+	@__syscall_gate(@const("__NR_pwrite64"))
+%)
+	@_SYSCALL_PWRITE_NAME
+	asmlinkage()
+	@_SYSCALL_PWRITE_REGARGS
+	offset = longlong_arg(4)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pwrite = kprobe.function(@arch_syscall_prefix "sys_pwrite64") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PWRITE_NAME
+	@_SYSCALL_PWRITE_REGARGS
+	offset = longlong_arg(4)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pwrite = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_pwrite64"))
+	@_SYSCALL_PWRITE_NAME
+	@_SYSCALL_PWRITE_REGARGS
+	offset = longlong_arg(4)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+probe nd_syscall.pwrite.return = nd1_syscall.pwrite.return!, nd2_syscall.pwrite.return!, tp_syscall.pwrite.return
+  { }
+  
+probe nd1_syscall.pwrite.return = kprobe.function("sys_pwrite64").return ?
+{
+%( arch == "s390" || arch == "x86_64" %?
+	@__syscall_gate(@const("__NR_pwrite64"))
+%)
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pwrite.return = kprobe.function(@arch_syscall_prefix "sys_pwrite64").return ?
+{
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pwrite.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_gate(@const("__NR_pwrite64"))
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR($ret)
+}
+
+# long sys32_pwrite64(unsigned int fd, const char __user *ubuf,
+#				size_t count, u32 poshi, u32 poslo)
+# COMPAT_SYSCALL_DEFINE5(s390_pwrite64, unsigned int, fd,
+#		         const char __user *, ubuf,
+#		         compat_size_t, count, u32, high, u32, low)
+
+probe syscall.pwrite32 = dw_syscall.pwrite32 !, nd_syscall.pwrite32 ? {}
+probe syscall.pwrite32.return = dw_syscall.pwrite32.return !,
+                                nd_syscall.pwrite32.return ? {}
+
+# dw_pwrite32 _____________________________________________________
+
+probe dw_syscall.pwrite32 =
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_pwrite64").call ?,
+%)
+%( arch == "x86_64" %?
+	kernel.function("compat_sys_x86_pwrite64").call ?,
+%)
+	kernel.function("sys32_pwrite64").call ?
+{
+	@_SYSCALL_PWRITE_NAME
+	fd = __int32($fd)
+	count = @__compat_ulong($count)
+	offset = ((@choose_defined($poshi, $high) << 32)
+		  + __uint32(@choose_defined($poslo, $low)))
+	buf_uaddr = @__pointer(@choose_defined($buf, $ubuf))
+	buf_str = user_buffer_quoted(buf_uaddr, count, syscall_string_trunc)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+probe dw_syscall.pwrite32.return =
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_pwrite64").return ?,
+%)
+%( arch == "x86_64" %?
+	kernel.function("compat_sys_x86_pwrite64").return ?,
+%)
+	kernel.function("sys32_pwrite64").return ?
+{
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_pwrite32 _____________________________________________________
+
+probe nd_syscall.pwrite32 = nd1_syscall.pwrite32!, nd2_syscall.pwrite32!, tp_syscall.pwrite32
+  { }
+
+probe nd1_syscall.pwrite32 =
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_pwrite64") ?,
+%)
+%( arch == "x86_64" %?
+	kprobe.function("compat_sys_x86_pwrite64") ?,
+%)
+	kprobe.function("sys32_pwrite64") ?
+{
+	@_SYSCALL_PWRITE_NAME
+	asmlinkage()
+	@_SYSCALL_PWRITE_REGARGS
+	offset = (u32_arg(4) << 32) + u32_arg(5)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pwrite32 = kprobe.function(@arch_syscall_prefix "compat_sys_x86_pwrite") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_PWRITE_NAME
+	@_SYSCALL_PWRITE_REGARGS
+	offset = (u32_arg(5) << 32) + u32_arg(4)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pwrite32 = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_pwrite64"))
+	@_SYSCALL_PWRITE_NAME
+	@_SYSCALL_PWRITE_REGARGS
+	offset = (u32_arg(5) << 32) + u32_arg(4)
+	@_SYSCALL_PWRITE_ARGSTR
+}
+
+probe nd_syscall.pwrite32.return = nd1_syscall.pwrite32.return!, nd2_syscall.pwrite32.return!, tp_syscall.pwrite32.return
+  { }
+  
+probe nd1_syscall.pwrite32.return =
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_pwrite64").return ?,
+%)
+%( arch == "x86_64" %?
+	kprobe.function("compat_sys_x86_pwrite64").return ?,
+%)
+	kprobe.function("sys32_pwrite64").return ?
+{
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.pwrite32.return =
+	kprobe.function(@arch_syscall_prefix "compat_sys_x86_pwrite").return ?
+{
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.pwrite32.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__compat_syscall_gate(@const("__NR_compat_pwrite64"))
+	@_SYSCALL_PWRITE_NAME
+	@SYSC_RETVALSTR($ret)
+}

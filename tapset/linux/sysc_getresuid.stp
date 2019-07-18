@@ -1,0 +1,118 @@
+# getresuid __________________________________________________
+# long sys_getresuid(uid_t __user *ruid,
+#		uid_t __user *euid,
+#		uid_t __user *suid)
+
+@define _SYSCALL_GETRESUID_NAME
+%(
+	name = "getresuid"
+%)
+
+@define _SYSCALL_GETRESUID_ARGSTR
+%(
+	argstr = sprintf("%p, %p, %p", ruid_uaddr, euid_uaddr, suid_uaddr)
+%)
+
+@define _SYSCALL_GETRESUID_REGARGS
+%(
+	ruid_uaddr = pointer_arg(1)
+	euid_uaddr = pointer_arg(2)
+	suid_uaddr = pointer_arg(3)
+%)
+
+probe syscall.getresuid = dw_syscall.getresuid !, nd_syscall.getresuid ? {}
+probe syscall.getresuid.return = dw_syscall.getresuid.return !, nd_syscall.getresuid.return ? {}
+
+# dw_getresuid _____________________________________________________
+
+probe dw_syscall.getresuid = kernel.function("sys_getresuid16").call ?,
+                          kernel.function("sys_getresuid").call
+{
+	@_SYSCALL_GETRESUID_NAME
+	ruid_uaddr = @choose_defined($ruidp, $ruid)
+	euid_uaddr = @choose_defined($euidp, $euid)
+	suid_uaddr = @choose_defined($suidp, $suid)
+	@_SYSCALL_GETRESUID_ARGSTR
+}
+probe dw_syscall.getresuid.return = kernel.function("sys_getresuid16").return ?,
+                                 kernel.function("sys_getresuid").return
+{
+	@_SYSCALL_GETRESUID_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_getresuid _____________________________________________________
+
+probe nd_syscall.getresuid = nd1_syscall.getresuid!, nd2_syscall.getresuid!, tp_syscall.getresuid
+  { }
+
+probe nd1_syscall.getresuid = kprobe.function("sys_getresuid16") ?,
+                              kprobe.function("sys_getresuid") ?
+{
+	@_SYSCALL_GETRESUID_NAME
+	asmlinkage()
+	@_SYSCALL_GETRESUID_REGARGS
+	@_SYSCALL_GETRESUID_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getresuid = kprobe.function(@arch_syscall_prefix "sys_getresuid") ?,
+                              kprobe.function(@arch_syscall_prefix "sys_getresuid16") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_GETRESUID_NAME
+	@_SYSCALL_GETRESUID_REGARGS
+	@_SYSCALL_GETRESUID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getresuid = __tp_syscall.getresuid, __tp_syscall.getresuid16
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETRESUID_NAME
+	@_SYSCALL_GETRESUID_REGARGS
+	@_SYSCALL_GETRESUID_ARGSTR
+}
+probe __tp_syscall.getresuid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_getresuid"), @const("__NR_compat_getresuid32"))
+}
+probe __tp_syscall.getresuid16 = kernel.trace("sys_enter")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getresuid"))
+}
+
+probe nd_syscall.getresuid.return = nd1_syscall.getresuid.return!, nd2_syscall.getresuid.return!, tp_syscall.getresuid.return
+  { }
+
+probe nd1_syscall.getresuid.return = kprobe.function("sys_getresuid16").return ?,
+                                     kprobe.function("sys_getresuid").return ?
+{
+	@_SYSCALL_GETRESUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.getresuid.return =
+	kprobe.function(@arch_syscall_prefix "sys_getresuid").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_getresuid16").return ?
+{
+	@_SYSCALL_GETRESUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.getresuid.return = __tp_syscall.getresuid.return, __tp_syscall.getresuid16.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_GETRESUID_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.getresuid.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_getresuid"), @const("__NR_compat_getresuid32"))
+}
+probe __tp_syscall.getresuid16.return = kernel.trace("sys_exit")
+{
+	@__compat_syscall_gate(@const("__NR_compat_getresuid"))
+}

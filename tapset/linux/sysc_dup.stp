@@ -1,0 +1,91 @@
+# dup ________________________________________________________
+# long sys_dup(unsigned int fildes)
+
+@define _SYSCALL_DUP_NAME
+%(
+	name = "dup"
+%)
+
+@define _SYSCALL_DUP_ARGSTR
+%(
+	argstr = sprint(oldfd)
+%)
+
+@define _SYSCALL_DUP_REGARGS
+%(
+	oldfd = int_arg(1)
+%)
+
+probe syscall.dup = dw_syscall.dup !, nd_syscall.dup ? {}
+probe syscall.dup.return = dw_syscall.dup.return !, nd_syscall.dup.return ? {}
+
+# dw_dup _____________________________________________________
+
+probe dw_syscall.dup = kernel.function("sys_dup").call
+{
+	@_SYSCALL_DUP_NAME
+	oldfd = __int32($fildes)
+	@_SYSCALL_DUP_ARGSTR
+}
+probe dw_syscall.dup.return = kernel.function("sys_dup").return
+{
+	@_SYSCALL_DUP_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_dup _____________________________________________________
+
+probe nd_syscall.dup = nd1_syscall.dup!, nd2_syscall.dup!, tp_syscall.dup
+  { }
+
+probe nd1_syscall.dup = kprobe.function("sys_dup") ?
+{
+	@_SYSCALL_DUP_NAME
+	asmlinkage()
+	@_SYSCALL_DUP_REGARGS
+	@_SYSCALL_DUP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.dup = kprobe.function(@arch_syscall_prefix "sys_dup") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_DUP_NAME
+	@_SYSCALL_DUP_REGARGS
+	@_SYSCALL_DUP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.dup = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_dup"), @const("__NR_compat_dup"))
+	@_SYSCALL_DUP_NAME
+	@_SYSCALL_DUP_REGARGS
+	@_SYSCALL_DUP_ARGSTR
+}
+
+probe nd_syscall.dup.return = nd1_syscall.dup.return!, nd2_syscall.dup.return!, tp_syscall.dup.return
+  { }
+  
+probe nd1_syscall.dup.return = kprobe.function("sys_dup").return ?
+{
+	@_SYSCALL_DUP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.dup.return = kprobe.function(@arch_syscall_prefix "sys_dup").return ?
+{
+	@_SYSCALL_DUP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.dup.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_dup"), @const("__NR_compat_dup"))
+	@_SYSCALL_DUP_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,101 @@
+# fstatfs ____________________________________________________
+# long sys_fstatfs(unsigned int fd, struct statfs __user * buf)
+# long compat_sys_fstatfs(unsigned int fd, struct compat_statfs __user *buf)
+#
+
+@define _SYSCALL_FSTATFS_NAME
+%(
+	name = "fstatfs"
+%)
+
+@define _SYSCALL_FSTATFS_ARGSTR
+%(
+	argstr = sprintf("%d, %p", fd, buf_uaddr)
+%)
+
+@define _SYSCALL_FSTATFS_REGARGS
+%(
+	fd = int_arg(1)
+	buf_uaddr = pointer_arg(2)
+%)
+
+probe syscall.fstatfs = dw_syscall.fstatfs !, nd_syscall.fstatfs ? {}
+probe syscall.fstatfs.return = dw_syscall.fstatfs.return !, nd_syscall.fstatfs.return ? {}
+
+# dw_fstatfs _____________________________________________________
+
+probe dw_syscall.fstatfs = kernel.function("compat_sys_fstatfs").call ?,
+                        kernel.function("sys_fstatfs").call
+{
+	@_SYSCALL_FSTATFS_NAME
+	fd = __int32($fd)
+	buf_uaddr = $buf
+	@_SYSCALL_FSTATFS_ARGSTR
+}
+probe dw_syscall.fstatfs.return = kernel.function("compat_sys_fstatfs").return ?,
+                               kernel.function("sys_fstatfs").return
+{
+	@_SYSCALL_FSTATFS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fstatfs _____________________________________________________
+
+probe nd_syscall.fstatfs = nd1_syscall.fstatfs!, nd2_syscall.fstatfs!, tp_syscall.fstatfs
+  { }
+
+probe nd1_syscall.fstatfs = kprobe.function("compat_sys_fstatfs") ?,
+                            kprobe.function("sys_fstatfs") ?
+{
+	@_SYSCALL_FSTATFS_NAME
+	asmlinkage()
+	@_SYSCALL_FSTATFS_REGARGS
+	@_SYSCALL_FSTATFS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fstatfs = kprobe.function(@arch_syscall_prefix "compat_sys_fstatfs") ?,
+                            kprobe.function(@arch_syscall_prefix "sys_fstatfs") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FSTATFS_NAME
+	@_SYSCALL_FSTATFS_REGARGS
+	@_SYSCALL_FSTATFS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fstatfs = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fstatfs"), @const("__NR_compat_fstatfs"))
+	@_SYSCALL_FSTATFS_NAME
+	@_SYSCALL_FSTATFS_REGARGS
+	@_SYSCALL_FSTATFS_ARGSTR
+}
+
+probe nd_syscall.fstatfs.return = nd1_syscall.fstatfs.return!, nd2_syscall.fstatfs.return!, tp_syscall.fstatfs.return
+  { }
+
+probe nd1_syscall.fstatfs.return = kprobe.function("compat_sys_fstatfs").return ?,
+                                   kprobe.function("sys_fstatfs").return ?
+{
+	@_SYSCALL_FSTATFS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fstatfs.return = kprobe.function(@arch_syscall_prefix "compat_sys_fstatfs").return ?,
+                                   kprobe.function(@arch_syscall_prefix "sys_fstatfs").return ?
+{
+	@_SYSCALL_FSTATFS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fstatfs.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fstatfs"), @const("__NR_compat_fstatfs"))
+	@_SYSCALL_FSTATFS_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,110 @@
+# faccessat __________________________________________________
+# new function with 2.6.16
+# long sys_faccessat(int dfd, const char __user *filename, int mode)
+
+@define _SYSCALL_FACCESSAT_NAME
+%(
+	name = "faccessat"
+%)
+
+@define _SYSCALL_FACCESSAT_ARGSTR
+%(
+	argstr = sprintf("%s, %s, %s", dirfd_str, pathname, mode_str)
+%)
+
+@define _SYSCALL_FACCESSAT_REGARGS
+%(
+	dirfd = int_arg(1)
+	dirfd_str = _dfd_str(dirfd)
+	pathname = user_string_quoted(pointer_arg(2))
+	mode = int_arg(3)
+	mode_str = _access_mode_str(mode)
+%)
+
+probe syscall.faccessat = dw_syscall.faccessat !, nd_syscall.faccessat ? {}
+probe syscall.faccessat.return = dw_syscall.faccessat.return !, nd_syscall.faccessat.return ? {}
+
+# dw_faccessat _____________________________________________________
+
+probe dw_syscall.faccessat = kernel.function("sys_faccessat").call ?
+{
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+	@_SYSCALL_FACCESSAT_NAME
+	dirfd = __int32($dfd)
+	dirfd_str = _dfd_str(__int32($dfd))
+	pathname = user_string_quoted($filename)
+	mode = __int32($mode)
+	mode_str = _access_mode_str(__int32($mode))
+	@_SYSCALL_FACCESSAT_ARGSTR
+}
+probe dw_syscall.faccessat.return = kernel.function("sys_faccessat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+	@_SYSCALL_FACCESSAT_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_faccessat _____________________________________________________
+
+probe nd_syscall.faccessat = nd1_syscall.faccessat!, nd2_syscall.faccessat!, tp_syscall.faccessat
+  { }
+
+probe nd1_syscall.faccessat = kprobe.function("sys_faccessat") ?
+{
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+	@_SYSCALL_FACCESSAT_NAME
+	asmlinkage()
+	@_SYSCALL_FACCESSAT_REGARGS
+	@_SYSCALL_FACCESSAT_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.faccessat = kprobe.function(@arch_syscall_prefix "sys_faccessat") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+        @_SYSCALL_FACCESSAT_NAME
+        @_SYSCALL_FACCESSAT_REGARGS
+        @_SYSCALL_FACCESSAT_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.faccessat = kernel.trace("sys_enter")
+{
+        __set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+        @_SYSCALL_FACCESSAT_NAME
+        @_SYSCALL_FACCESSAT_REGARGS
+        @_SYSCALL_FACCESSAT_ARGSTR
+}
+
+probe nd_syscall.faccessat.return = nd1_syscall.faccessat.return!, nd2_syscall.faccessat.return!, tp_syscall.faccessat.return
+  { }
+
+probe nd1_syscall.faccessat.return = kprobe.function("sys_faccessat").return ?
+{
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+	@_SYSCALL_FACCESSAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.faccessat.return = kprobe.function(@arch_syscall_prefix "sys_faccessat").return ?
+{
+	@_SYSCALL_FACCESSAT_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.faccessat.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_faccessat"),
+			       @const("__NR_compat_faccessat"))
+	@_SYSCALL_FACCESSAT_NAME
+	@SYSC_RETVALSTR($ret)
+}

@@ -1,0 +1,110 @@
+// conversions tapset -- eBPF version
+// Copyright (C) 2018 Red Hat Inc.
+//
+// This file is part of systemtap, and is free software.  You can
+// redistribute it and/or modify it under the terms of the GNU General
+// Public License (GPL); either version 2, or (at your option) any
+// later version.
+
+/**
+ * sfunction kernel_string - Retrieves string from kernel memory
+ * @addr: The kernel address to retrieve the string from
+ *
+ * Description: This function returns the null terminated C string
+ * from a given kernel memory address. Reports an error on string
+ * copy fault.
+ */
+function kernel_string:string (addr:long) {
+  return kernel_string_n(addr, 64 /*TODO: define BPF_MAXSTRINGLEN*/)
+}
+
+// TODO kernel_string:string(addr:long, err_msg:string)
+// TODO kernel_string2:string(addr:long, err_msg:string)
+
+/**
+ * sfunction kernel_string - Retrieves string from kernel memory with alternative error string
+ * @addr: The kernel address to retrieve the string from
+ * @err_msg: The error message to return when data isn't available
+ *
+ * Description: This function returns the null terminated C string
+ * from a given kernel memory address. Reports the given error message
+ * on string copy fault.
+ */
+function kernel_string:string (addr:long, err_msg:string)
+%{ /* bpf */ /* pure */
+  /* buf = bpf_stk_alloc(BPF_MAXSTRINGLEN);
+     buf[0] = 0x0; // guarantee NUL byte
+     rc = bpf_probe_read_str(buf, BPF_MAXSTRINGLEN, addr); */
+  alloc, $buf, BPF_MAXSTRINGLEN;
+  0x62, $buf, -, -, 0x0; /* stw [$buf+0], 0x0 -- guarantee NUL byte */
+  call, $rc, probe_read_str, $buf, BPF_MAXSTRINGLEN, $addr;
+
+  /* if (rc < 0) return err_msg;
+     return buf; */
+  0xa5, rc, 0, _err, -; /* jlt $rc, 0, _err */
+  0xbf, $$, $buf, -, -; /* mov $$, $buf */
+  0x05, -, -, _done, -; /* ja _done; */
+
+  label, _err;
+  0xbf, $$, $err_msg, -, -; /* mov $$, $err_msg */
+
+  label, _done;
+%}
+function kernel_string2:string (addr:long, err_msg:string) {
+  return kernel_string(addr, err_msg);
+}
+
+// TODO kernel_string_quoted:string(addr:long) -- requires pseudo-loop to quote unprintable chars
+
+/**
+ * sfunction kernel_string_n - Retrieves string of given length from kernel memory
+ * @addr: The kernel address to retrieve the string from
+ * @n: The maximum length of the string (if not null terminated)
+ *
+ * Description: Returns the C string of a maximum given length from a
+ * given kernel memory address. Reports an error on string copy fault.
+ */
+function kernel_string_n:string (addr:long, n:long)
+%{ /* bpf */ /* pure */
+  /* if (n > BPF_MAXSTRINGLEN) n = BPF_MAXSTRINGLEN; */
+  0xb5, $n, -, _skip, BPF_MAXSTRINGLEN; /* jle n, BPF_MAXSTRINGLEN, _skip */
+  0xb7, $n, -, -, BPF_MAXSTRINGLEN; /* mov $n, BPF_MAXSTRINGLEN */
+
+  label, _skip;
+  /* buf = bpf_stk_alloc(BPF_MAXSTRINGLEN);
+     buf[0] = 0x0; // guarantee NUL byte
+     rc = bpf_probe_read_str(buf, n, addr); */
+  alloc, $buf, BPF_MAXSTRINGLEN;
+  0x62, $buf, -, -, 0x0; /* stw [buf+0], 0 -- guarantee NUL byte */
+  call, $rc, probe_read_str, $buf, $n, $addr; /* TODO: should work if the helper is named bpf_probe_read_str() too */
+
+  /* if (rc < 0) error("...", addr); */
+  0x35, $rc, 0, _done, -; /* jge rc, 0, _done */
+  call, -, printf, "ERROR: kernel string copy fault at 0x%p [man error::fault]", $addr; /* TODO document stapbpf version of error::fault */
+  call, -, exit;
+
+  label, _done;
+  /* return buf; */
+  0xbf, $$, $buf, -, -; /* mov $$, buf */
+%}
+
+// TODO kernel_string_utf32:string(addr:long)
+// TODO kernel_string_utf32:string(addr:long,err_msg:string)
+// TODO kernel_string2_utf32:string(addr:long,err_msg:string)
+// TODO kernel_string_quoted_utf32:string(addr:long)
+
+// TODO kernel_string_utf16:string(addr:long)
+// TODO kernel_string_utf16:string(addr:long,err_msg:string)
+// TODO kernel_string2_utf16:string(addr:long,err_msg:string)
+// TODO kernel_string_quoted_utf16:string(addr:long)
+
+// TODO kernel_long:long(addr:long)
+// TODO kernel_int:long(addr:long)
+// TODO kernel_short:long(addr:long)
+// TODO kernel_char:long(addr:long)
+
+// TODO kernel_pointer:long(addr:long)
+
+// TODO kernel_buffer_quoted:string(addr:long,inlen:long)
+// TODO kernel_buffer_quoted:string(addr:long,inlen:long,outlen:long)
+// TODO kernel_buffer_quoted_error:string(addr:long,inlen:long,outlen:long)

@@ -1,0 +1,100 @@
+# readlink ___________________________________________________
+#
+# long sys_readlink(const char __user * path,
+#		  char __user * buf,
+#		  int bufsiz)
+#
+
+@define _SYSCALL_READLINK_NAME
+%(
+	name = "readlink"
+%)
+
+@define _SYSCALL_READLINK_ARGSTR
+%(
+	argstr = sprintf("%s, %p, %d", path, buf_uaddr, bufsiz)
+%)
+
+@define _SYSCALL_READLINK_REGARGS
+%(
+	path = user_string_quoted(pointer_arg(1))
+	buf_uaddr = pointer_arg(2)
+	bufsiz = int_arg(3)
+%)
+
+probe syscall.readlink = dw_syscall.readlink !, nd_syscall.readlink ? {}
+probe syscall.readlink.return = dw_syscall.readlink.return !,
+                                nd_syscall.readlink.return ? {}
+
+# dw_readlink _____________________________________________________
+
+probe dw_syscall.readlink = kernel.function("sys_readlink").call
+{
+	@_SYSCALL_READLINK_NAME
+	path = user_string_quoted($path)
+	buf_uaddr = $buf
+	bufsiz = __int32($bufsiz)
+	@_SYSCALL_READLINK_ARGSTR
+}
+probe dw_syscall.readlink.return = kernel.function("sys_readlink").return
+{
+	@_SYSCALL_READLINK_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_readlink _____________________________________________________
+
+probe nd_syscall.readlink = nd1_syscall.readlink!, nd2_syscall.readlink!, tp_syscall.readlink
+  { }
+
+probe nd1_syscall.readlink = kprobe.function("sys_readlink") ?
+{
+	@_SYSCALL_READLINK_NAME
+	asmlinkage()
+	@_SYSCALL_READLINK_REGARGS
+	@_SYSCALL_READLINK_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.readlink = kprobe.function(@arch_syscall_prefix "sys_readlink") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_READLINK_NAME
+	@_SYSCALL_READLINK_REGARGS
+	@_SYSCALL_READLINK_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.readlink = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_readlink"), @const("__NR_compat_readlink"))
+	@_SYSCALL_READLINK_NAME
+	@_SYSCALL_READLINK_REGARGS
+	@_SYSCALL_READLINK_ARGSTR
+}
+
+probe nd_syscall.readlink.return = nd1_syscall.readlink.return!, nd2_syscall.readlink.return!, tp_syscall.readlink.return
+  { }
+  
+probe nd1_syscall.readlink.return = kprobe.function("sys_readlink").return ?
+{
+	@_SYSCALL_READLINK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.readlink.return = kprobe.function(@arch_syscall_prefix "sys_readlink").return ?
+{
+	@_SYSCALL_READLINK_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.readlink.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_readlink"), @const("__NR_compat_readlink"))
+	@_SYSCALL_READLINK_NAME
+	@SYSC_RETVALSTR($ret)
+}

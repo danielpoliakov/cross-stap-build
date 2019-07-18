@@ -1,0 +1,157 @@
+# setfsuid ___________________________________________________
+# long sys_setfsuid(uid_t uid)
+# long sys_setfsuid16(old_uid_t uid)
+#
+
+@define _SYSCALL_SETFSUID_NAME
+%(
+	name = "setfsuid"
+%)
+
+@define _SYSCALL_SETFSUID_ARGSTR
+%(
+	argstr = sprint(fsuid)
+%)
+
+@define _SYSCALL_GATE
+%(
+    %( arch == "x86_64" %?
+	// There are actually 3 x86_64 setfsuid syscalls numbers (which
+	// get mapped to 2 syscall functions:
+	//   - __NR_setfsuid which gets mapped to sys_setfsuid()
+	//   - __NR_ia32_setfsuid32 which also gets mapped to
+	//     sys_setfsuid() 
+	//   - __NR_ia32_setfsuid which gets mapped to sys_setfsuid16()
+	//     (which is a wrapper around sys_setfsuid())
+	// So, we need to avoid sys_setfsuid() calls that come from
+	// sys_setfsuid16().
+	@__syscall_compat_gate(@const("__NR_setfsuid"),
+			       @const("__NR_ia32_setfsuid32"))
+    %:
+	%( arch == "i386" %?
+	    // On i386, there are 2 setfsuid syscall numbers:
+	    //   - __NR_setfsuid which gets mapped to sys_setfsuid16
+	    //   - __NR_setfsuid32 which gets mapped to sys_setfsuid
+	    // Since this gets called from a probe on sys_setfsuid, we'll
+	    // make sure this is really __NR_setfsuid32.
+	    @__syscall_nr_gate(@const("__NR_setfsuid32"))
+	%)
+    %)
+%)
+
+@define _SYSCALL_SETFSUID_REGARGS
+%(
+	fsuid = int_arg(1)
+%)
+
+probe syscall.setfsuid = dw_syscall.setfsuid !, nd_syscall.setfsuid ? {}
+probe syscall.setfsuid.return = dw_syscall.setfsuid.return !,
+	                        nd_syscall.setfsuid.return ? {}
+
+# dw_setfsuid _____________________________________________________
+
+probe dw_syscall.setfsuid = kernel.function("sys_setfsuid16").call ?,
+			    __syscall.setfsuid ?
+{
+	@_SYSCALL_SETFSUID_NAME
+	fsuid = __int32($uid)
+	@_SYSCALL_SETFSUID_ARGSTR
+}
+probe __syscall.setfsuid = kernel.function("sys_setfsuid").call ?
+{
+	@_SYSCALL_GATE
+}
+probe dw_syscall.setfsuid.return = kernel.function("sys_setfsuid16").return ?,
+				   __syscall.setfsuid.return ?
+{
+	@_SYSCALL_SETFSUID_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.setfsuid.return = kernel.function("sys_setfsuid").return ?
+{
+	@_SYSCALL_GATE
+}
+
+# nd_setfsuid _____________________________________________________
+
+probe nd_syscall.setfsuid = nd1_syscall.setfsuid!, nd2_syscall.setfsuid!, tp_syscall.setfsuid
+  { }
+
+probe nd1_syscall.setfsuid = kprobe.function("sys_setfsuid16") ?,
+                             __nd1_syscall.setfsuid ?
+{
+	@_SYSCALL_SETFSUID_NAME
+	asmlinkage()
+	@_SYSCALL_SETFSUID_REGARGS
+	@_SYSCALL_SETFSUID_ARGSTR
+}
+probe __nd1_syscall.setfsuid = kprobe.function("sys_setfsuid") ?
+{
+	@_SYSCALL_GATE
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setfsuid = kprobe.function(@arch_syscall_prefix "sys_setfsuid") ?,
+                             kprobe.function(@arch_syscall_prefix "sys_setfsuid16") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SETFSUID_NAME
+	@_SYSCALL_SETFSUID_REGARGS
+	@_SYSCALL_SETFSUID_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setfsuid = __tp_syscall.setfsuid, __tp_syscall.setfsuid16
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_SETFSUID_NAME
+	@_SYSCALL_SETFSUID_REGARGS
+	@_SYSCALL_SETFSUID_ARGSTR
+}
+probe __tp_syscall.setfsuid = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_setfsuid"), @const("__NR_compat_setfsuid32"))
+}
+probe __tp_syscall.setfsuid16 = kernel.trace("sys_enter")
+{
+	@__compat_syscall_gate(@const("__NR_compat_setfsuid"))
+}
+
+probe nd_syscall.setfsuid.return = nd1_syscall.setfsuid.return!, nd2_syscall.setfsuid.return!, tp_syscall.setfsuid.return
+  { }
+
+probe nd1_syscall.setfsuid.return = kprobe.function("sys_setfsuid16").return ?,
+                                    __nd1_syscall.setfsuid.return ?
+{
+	@_SYSCALL_SETFSUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.setfsuid.return = kprobe.function("sys_setfsuid").return ?
+{
+	@_SYSCALL_GATE
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setfsuid.return =
+	kprobe.function(@arch_syscall_prefix "sys_setfsuid").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_setfsuid16").return ?
+{
+	@_SYSCALL_SETFSUID_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setfsuid.return = __tp_syscall.setfsuid.return, __tp_syscall.setfsuid16.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_SETFSUID_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.setfsuid.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_setfsuid"), @const("__NR_compat_setfsuid32"))
+}
+probe __tp_syscall.setfsuid16.return = kernel.trace("sys_exit")
+{
+	@__compat_syscall_gate(@const("__NR_compat_setfsuid"))
+}

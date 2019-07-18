@@ -1,0 +1,83 @@
+# vhangup ____________________________________________________
+#
+# asmlinkage long
+# sys_vhangup(void)
+#
+
+@define _SYSCALL_VHANGUP_NAME
+%(
+	name = "vhangup"
+%)
+
+@define _SYSCALL_VHANGUP_ARGSTR
+%(
+	argstr = ""
+%)
+
+probe syscall.vhangup = dw_syscall.vhangup !, nd_syscall.vhangup ? {}
+probe syscall.vhangup.return = dw_syscall.vhangup.return !,
+                               nd_syscall.vhangup.return ? {}
+
+# dw_vhangup _____________________________________________________
+
+probe dw_syscall.vhangup = kernel.function("sys_vhangup").call
+{
+	@_SYSCALL_VHANGUP_NAME
+	@_SYSCALL_VHANGUP_ARGSTR
+}
+probe dw_syscall.vhangup.return = kernel.function("sys_vhangup").return
+{
+	@_SYSCALL_VHANGUP_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_vhangup _____________________________________________________
+
+probe nd_syscall.vhangup = nd1_syscall.vhangup!, nd2_syscall.vhangup!, tp_syscall.vhangup
+  { }
+
+probe nd1_syscall.vhangup = kprobe.function("sys_vhangup")
+{
+	@_SYSCALL_VHANGUP_NAME
+	@_SYSCALL_VHANGUP_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.vhangup = kprobe.function(@arch_syscall0_prefix "sys_vhangup") ?
+{
+	@_SYSCALL_VHANGUP_NAME
+	@_SYSCALL_VHANGUP_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.vhangup = kernel.trace("sys_enter") ?
+{
+	@__syscall_compat_gate(@const("__NR_vhangup"), @const("__NR_compat_vhangup"))
+	@_SYSCALL_VHANGUP_NAME
+	@_SYSCALL_VHANGUP_ARGSTR
+}
+
+probe nd_syscall.vhangup.return = nd1_syscall.vhangup.return!, nd2_syscall.vhangup.return!, tp_syscall.vhangup.return
+  { }
+
+probe nd1_syscall.vhangup.return = kprobe.function("sys_vhangup").return
+{
+	@_SYSCALL_VHANGUP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.vhangup.return = kprobe.function(@arch_syscall0_prefix "sys_vhangup").return ?
+{
+	@_SYSCALL_VHANGUP_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.vhangup.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_vhangup"), @const("__NR_compat_vhangup"))
+	@_SYSCALL_VHANGUP_NAME
+	@SYSC_RETVALSTR($ret)
+}

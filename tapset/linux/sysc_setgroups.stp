@@ -1,0 +1,136 @@
+# setgroups __________________________________________________
+#
+# long sys_setgroups(int gidsetsize, gid_t __user *grouplist)
+# long sys_setgroups16(int gidsetsize, old_gid_t __user *grouplist)
+# long sys32_setgroups16(int gidsetsize, u16 __user *grouplist)
+#
+
+@define _SYSCALL_SETGROUPS_NAME
+%(
+	name = "setgroups"
+%)
+
+@define _SYSCALL_SETGROUPS_ARGSTR
+%(
+	argstr = sprintf("%d, %p", size, list_uaddr)
+%)
+
+@define _SYSCALL_SETGROUPS_REGARGS
+%(
+	size = int_arg(1)
+	list_uaddr = pointer_arg(2)
+%)
+
+probe syscall.setgroups = dw_syscall.setgroups !, nd_syscall.setgroups ? {}
+probe syscall.setgroups.return = dw_syscall.setgroups.return !,
+                                 nd_syscall.setgroups.return ? {}
+
+# dw_setgroups _____________________________________________________
+
+probe dw_syscall.setgroups = kernel.function("sys_setgroups16").call ?,
+                          kernel.function("sys32_setgroups16").call ?,
+%( arch == "s390" %?
+                          kernel.function("compat_sys_s390_setgroups16").call ?,
+%)
+                          kernel.function("sys_setgroups").call ?
+{
+	@_SYSCALL_SETGROUPS_NAME
+	size = __int32($gidsetsize)
+	list_uaddr = $grouplist
+	@_SYSCALL_SETGROUPS_ARGSTR
+}
+probe dw_syscall.setgroups.return = kernel.function("sys_setgroups16").return ?,
+	kernel.function("sys32_setgroups16").return ?,
+%( arch == "s390" %?
+	kernel.function("compat_sys_s390_setgroups16").return ?,
+%)
+	kernel.function("sys_setgroups").return ?
+{
+	@_SYSCALL_SETGROUPS_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_setgroups _____________________________________________________
+
+probe nd_syscall.setgroups = nd1_syscall.setgroups!, nd2_syscall.setgroups!, tp_syscall.setgroups
+  { }
+
+probe nd1_syscall.setgroups = kprobe.function("sys_setgroups16") ?,
+                             kprobe.function("sys32_setgroups16") ?,
+%( arch == "s390" %?
+                             kprobe.function("compat_sys_s390_setgroups16") ?,
+%)
+                             kprobe.function("sys_setgroups") ?
+{
+	@_SYSCALL_SETGROUPS_NAME
+	asmlinkage()
+	@_SYSCALL_SETGROUPS_REGARGS
+	@_SYSCALL_SETGROUPS_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setgroups =
+	kprobe.function(@arch_syscall_prefix "sys_setgroups") ?,
+	kprobe.function(@arch_syscall_prefix "sys_setgroups16") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_SETGROUPS_NAME
+	@_SYSCALL_SETGROUPS_REGARGS
+	@_SYSCALL_SETGROUPS_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setgroups = __tp_syscall.setgroups, __tp_syscall.setgroups32
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_SETGROUPS_NAME
+	@_SYSCALL_SETGROUPS_REGARGS
+	@_SYSCALL_SETGROUPS_ARGSTR
+}
+probe __tp_syscall.setgroups = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_setgroups"), @const("__NR_compat_setgroups"))
+}
+probe __tp_syscall.setgroups32 = kernel.trace("sys_enter")
+{
+	@__syscall_compat_gate(@const("__NR_setgroups32"), @const("__NR_compat_setgroups32"))
+}
+
+probe nd_syscall.setgroups.return = nd1_syscall.setgroups.return!, nd2_syscall.setgroups.return!, tp_syscall.setgroups.return
+  { }
+  
+probe nd1_syscall.setgroups.return = kprobe.function("sys_setgroups16").return ?,
+	kprobe.function("sys32_setgroups16").return ?,
+%( arch == "s390" %?
+	kprobe.function("compat_sys_s390_setgroups16").return ?,
+%)
+	kprobe.function("sys_setgroups").return ?
+{
+	@_SYSCALL_SETGROUPS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.setgroups.return =
+	kprobe.function(@arch_syscall_prefix "sys_setgroups").return ?,
+	kprobe.function(@arch_syscall_prefix "sys_setgroups16").return ?
+{
+	@_SYSCALL_SETGROUPS_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.setgroups.return = __tp_syscall.setgroups.return, __tp_syscall.setgroups32.return
+{
+	__set_syscall_pt_regs($regs)
+	@_SYSCALL_SETGROUPS_NAME
+	@SYSC_RETVALSTR($ret)
+}
+probe __tp_syscall.setgroups.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_setgroups"), @const("__NR_compat_setgroups"))
+}
+probe __tp_syscall.setgroups32.return = kernel.trace("sys_exit")
+{
+	@__syscall_compat_gate(@const("__NR_setgroups32"), @const("__NR_compat_setgroups32"))
+}

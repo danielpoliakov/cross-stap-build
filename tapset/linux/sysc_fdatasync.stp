@@ -1,0 +1,91 @@
+# fdatasync __________________________________________________
+# long sys_fdatasync(unsigned int fd)
+
+@define _SYSCALL_FDATASYNC_NAME
+%(
+	name = "fdatasync"
+%)
+
+@define _SYSCALL_FDATASYNC_ARGSTR
+%(
+	argstr = sprint(fd)
+%)
+
+@define _SYSCALL_FDATASYNC_REGARGS
+%(
+	fd = int_arg(1)
+%)
+
+probe syscall.fdatasync = dw_syscall.fdatasync !, nd_syscall.fdatasync ? {}
+probe syscall.fdatasync.return = dw_syscall.fdatasync.return !, nd_syscall.fdatasync.return ? {}
+
+# dw_fdatasync _____________________________________________________
+
+probe dw_syscall.fdatasync = kernel.function("sys_fdatasync").call
+{
+	@_SYSCALL_FDATASYNC_NAME
+	fd = __int32($fd)
+	@_SYSCALL_FDATASYNC_ARGSTR
+}
+probe dw_syscall.fdatasync.return = kernel.function("sys_fdatasync").return
+{
+	@_SYSCALL_FDATASYNC_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_fdatasync _____________________________________________________
+
+probe nd_syscall.fdatasync = nd1_syscall.fdatasync!, nd2_syscall.fdatasync!, tp_syscall.fdatasync
+  { }
+
+probe nd1_syscall.fdatasync = kprobe.function("sys_fdatasync") ?
+{
+	@_SYSCALL_FDATASYNC_NAME
+	asmlinkage()
+	@_SYSCALL_FDATASYNC_REGARGS
+	@_SYSCALL_FDATASYNC_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fdatasync = kprobe.function(@arch_syscall_prefix "sys_fdatasync") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_FDATASYNC_NAME
+	@_SYSCALL_FDATASYNC_REGARGS
+	@_SYSCALL_FDATASYNC_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fdatasync = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fdatasync"), @const("__NR_compat_fdatasync"))
+	@_SYSCALL_FDATASYNC_NAME
+	@_SYSCALL_FDATASYNC_REGARGS
+	@_SYSCALL_FDATASYNC_ARGSTR
+}
+
+probe nd_syscall.fdatasync.return = nd1_syscall.fdatasync.return!, nd2_syscall.fdatasync.return!, tp_syscall.fdatasync.return
+  { }
+
+probe nd1_syscall.fdatasync.return = kprobe.function("sys_fdatasync").return ?
+{
+	@_SYSCALL_FDATASYNC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.fdatasync.return = kprobe.function(@arch_syscall_prefix "sys_fdatasync").return ?
+{
+	@_SYSCALL_FDATASYNC_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.fdatasync.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_fdatasync"), @const("__NR_compat_fdatasync"))
+	@_SYSCALL_FDATASYNC_NAME
+	@SYSC_RETVALSTR($ret)
+}

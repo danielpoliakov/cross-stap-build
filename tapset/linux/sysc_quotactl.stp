@@ -1,0 +1,136 @@
+# quotactl ___________________________________________________
+#
+# long sys_quotactl(unsigned int cmd,
+#		  const char __user *special,
+#		  qid_t id,
+#		  void __user *addr)
+# asmlinkage long sys32_quotactl(unsigned int cmd, const char __user *special,
+#						qid_t id, void __user *addr)
+#
+
+@define _SYSCALL_QUOTACTL_NAME
+%(
+	name = "quotactl"
+%)
+
+@define _SYSCALL_QUOTACTL_REGARGS
+%(
+	cmd = uint_arg(1)
+	cmd_str = _quotactl_cmd_str(cmd)
+	special = pointer_arg(2)
+	special_str = user_string_quoted(special)
+	id = int_arg(3)
+	addr_uaddr = pointer_arg(4)
+%)
+
+probe syscall.quotactl = dw_syscall.quotactl !, nd_syscall.quotactl ? {}
+probe syscall.quotactl.return = dw_syscall.quotactl.return !,
+                                nd_syscall.quotactl.return ? {}
+
+# dw_quotactl _____________________________________________________
+
+probe dw_syscall.quotactl = __syscall.quotactl ?,
+	kernel.function("sys32_quotactl").call ?
+{
+	@_SYSCALL_QUOTACTL_NAME
+	cmd = __uint32($cmd)
+	cmd_str = _quotactl_cmd_str(__uint32($cmd))
+	special = $special
+	special_str = user_string_quoted($special)
+	id = __int32($id)
+	addr_uaddr = $addr
+	@__quotactl_argstr(_quotactl_subcmd(cmd), cmd, special, id, addr_uaddr)
+}
+probe __syscall.quotactl = kernel.function("sys_quotactl").call ?
+{
+# sys32_quotactl() was introduced in 2.6.23.
+%( arch != "powerpc" && arch != "s390" && kernel_v >= "2.6.23" %?
+	@__syscall_gate_compat_simple
+%)
+}
+probe dw_syscall.quotactl.return = __syscall.quotactl.return ?,
+	kernel.function("sys32_quotactl").return ?
+{
+	@_SYSCALL_QUOTACTL_NAME
+	@SYSC_RETVALSTR($return)
+}
+probe __syscall.quotactl.return = kernel.function("sys_quotactl").return ?
+{
+%( arch != "powerpc" && arch != "s390" && kernel_v >= "2.6.23" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+# nd_quotactl _____________________________________________________
+
+probe nd_syscall.quotactl = nd1_syscall.quotactl!, nd2_syscall.quotactl!, tp_syscall.quotactl
+  { }
+
+probe nd1_syscall.quotactl = __nd1_syscall.quotactl ?,
+	kprobe.function("sys32_quotactl") ?
+{
+	@_SYSCALL_QUOTACTL_NAME
+	asmlinkage()
+	@_SYSCALL_QUOTACTL_REGARGS
+	@__quotactl_argstr(_quotactl_subcmd(cmd), cmd, special, id, addr_uaddr)
+}
+probe __nd1_syscall.quotactl = kprobe.function("sys_quotactl") ?
+{
+# sys32_quotactl() was introduced in 2.6.23.
+%( arch != "powerpc" && arch != "s390" && kernel_v >= "2.6.23" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.quotactl = kprobe.function(@arch_syscall_prefix "sys_quotactl") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_quotactl32") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_QUOTACTL_NAME
+	@_SYSCALL_QUOTACTL_REGARGS
+	@__quotactl_argstr(_quotactl_subcmd(cmd), cmd, special, id, addr_uaddr)
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.quotactl = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_quotactl"), @const("__NR_compat_quotactl"))
+	@_SYSCALL_QUOTACTL_NAME
+	@_SYSCALL_QUOTACTL_REGARGS
+	@__quotactl_argstr(_quotactl_subcmd(cmd), cmd, special, id, addr_uaddr)
+}
+
+probe nd_syscall.quotactl.return = nd1_syscall.quotactl.return!, nd2_syscall.quotactl.return!, tp_syscall.quotactl.return
+  { }
+  
+probe nd1_syscall.quotactl.return = __nd1_syscall.quotactl.return ?,
+	kprobe.function("sys32_quotactl").return ?
+{
+	@_SYSCALL_QUOTACTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+probe __nd1_syscall.quotactl.return = kprobe.function("sys_quotactl").return ?
+{
+%( arch != "powerpc" && arch != "s390" && kernel_v >= "2.6.23" %?
+	@__syscall_gate_compat_simple
+%)
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.quotactl.return = kprobe.function(@arch_syscall_prefix "sys_quotactl").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_quotactl32").return ?
+{
+	@_SYSCALL_QUOTACTL_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.quotactl.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_quotactl"), @const("__NR_compat_quotactl"))
+	@_SYSCALL_QUOTACTL_NAME
+	@SYSC_RETVALSTR($ret)
+}

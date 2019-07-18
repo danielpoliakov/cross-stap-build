@@ -1,0 +1,125 @@
+# rt_tgsigqueueinfo ____________________________________________
+#
+# SYSCALL_DEFINE4(rt_tgsigqueueinfo, pid_t, tgid, pid_t, pid, int, sig,
+#		siginfo_t __user *, uinfo)
+# COMPAT_SYSCALL_DEFINE4(rt_tgsigqueueinfo,
+#			compat_pid_t, tgid,
+#			compat_pid_t, pid,
+#			int, sig,
+#			struct compat_siginfo __user *, uinfo)
+#
+
+@define _SYSCALL_RT_TGSIGQUEUEINFO_NAME
+%(
+	name = "rt_tgsigqueueinfo"
+%)
+
+@define _SYSCALL_RT_TGSIGQUEUEINFO_ARGSTR
+%(
+	argstr = sprintf("%d, %d, %s, %s", tgid, tid, sig_str, uinfo_str)
+%)
+
+@define _SYSCALL_RT_TGSIGQUEUEINFO_REGARGS
+%(
+	tgid = int_arg(1)
+	tid = int_arg(2)
+	sig = int_arg(3)
+	sig_str = _signal_name(sig)
+	uinfo_uaddr = pointer_arg(4)
+	uinfo_str = (@__compat_task ? _stp_compat_siginfo_u(uinfo_uaddr)
+	             : _stp_siginfo_u(uinfo_uaddr))
+%)
+
+probe syscall.rt_tgsigqueueinfo = dw_syscall.rt_tgsigqueueinfo !,
+                                  nd_syscall.rt_tgsigqueueinfo ? {}
+probe syscall.rt_tgsigqueueinfo.return = dw_syscall.rt_tgsigqueueinfo.return !,
+                                         nd_syscall.rt_tgsigqueueinfo.return ? {}
+
+# dw_rt_tgsigqueueinfo _____________________________________________________
+
+probe dw_syscall.rt_tgsigqueueinfo =
+	kernel.function("sys_rt_tgsigqueueinfo").call ?,
+	kernel.function("compat_sys_rt_tgsigqueueinfo").call ?
+{
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	tgid = __int32($tgid)
+	tid = __int32($pid)
+	sig = __int32($sig)
+	sig_str = _signal_name(sig)
+	uinfo_uaddr = $uinfo
+	uinfo_str = (@__compat_task ? _stp_compat_siginfo_u(uinfo_uaddr)
+	             : _stp_siginfo_u(uinfo_uaddr))
+	@_SYSCALL_RT_TGSIGQUEUEINFO_ARGSTR
+}
+probe dw_syscall.rt_tgsigqueueinfo.return =
+	kernel.function("sys_rt_tgsigqueueinfo").return ?,
+	kernel.function("compat_sys_rt_tgsigqueueinfo").return ?
+{
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@SYSC_RETVALSTR($return)
+}
+
+# nd_rt_tgsigqueueinfo _____________________________________________________
+
+probe nd_syscall.rt_tgsigqueueinfo = nd1_syscall.rt_tgsigqueueinfo!, nd2_syscall.rt_tgsigqueueinfo!, tp_syscall.rt_tgsigqueueinfo
+  { }
+
+probe nd1_syscall.rt_tgsigqueueinfo =
+	kprobe.function("sys_rt_tgsigqueueinfo") ?,
+	kprobe.function("compat_sys_rt_tgsigqueueinfo") ?
+{
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	asmlinkage()
+	@_SYSCALL_RT_TGSIGQUEUEINFO_REGARGS
+	@_SYSCALL_RT_TGSIGQUEUEINFO_ARGSTR
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_tgsigqueueinfo =
+	kprobe.function(@arch_syscall_prefix "sys_rt_tgsigqueueinfo") ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_tgsigqueueinfo") ?
+{
+	__set_syscall_pt_regs(pointer_arg(1))
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@_SYSCALL_RT_TGSIGQUEUEINFO_REGARGS
+	@_SYSCALL_RT_TGSIGQUEUEINFO_ARGSTR
+}
+
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_tgsigqueueinfo = kernel.trace("sys_enter")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_rt_tgsigqueueinfo"), @const("__NR_compat_rt_tgsigqueueinfo"))
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@_SYSCALL_RT_TGSIGQUEUEINFO_REGARGS
+	@_SYSCALL_RT_TGSIGQUEUEINFO_ARGSTR
+}
+
+probe nd_syscall.rt_tgsigqueueinfo.return = nd1_syscall.rt_tgsigqueueinfo.return!, nd2_syscall.rt_tgsigqueueinfo.return!, tp_syscall.rt_tgsigqueueinfo.return
+  { }
+  
+probe nd1_syscall.rt_tgsigqueueinfo.return =
+	kprobe.function("sys_rt_tgsigqueueinfo").return ?,
+	kprobe.function("compat_sys_rt_tgsigqueueinfo").return ?
+{
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+
+/* kernel 4.17+ */
+probe nd2_syscall.rt_tgsigqueueinfo.return =
+	kprobe.function(@arch_syscall_prefix "sys_rt_tgsigqueueinfo").return ?,
+	kprobe.function(@arch_syscall_prefix "compat_sys_rt_tgsigqueueinfo").return ?
+{
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@SYSC_RETVALSTR(returnval())
+}
+ 
+/* kernel 3.5+, but undesirable because it affects all syscalls */
+probe tp_syscall.rt_tgsigqueueinfo.return = kernel.trace("sys_exit")
+{
+	__set_syscall_pt_regs($regs)
+	@__syscall_compat_gate(@const("__NR_rt_tgsigqueueinfo"), @const("__NR_compat_rt_tgsigqueueinfo"))
+	@_SYSCALL_RT_TGSIGQUEUEINFO_NAME
+	@SYSC_RETVALSTR($ret)
+}
